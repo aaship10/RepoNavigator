@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from github_fetcher import fetch_repo_files
+from backend.core.github_fetcher import fetch_repo_files
 
 app = FastAPI(title="Repo Navigator API")
 
