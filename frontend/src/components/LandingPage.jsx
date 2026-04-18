@@ -211,7 +211,7 @@ export default function LandingPage({ onAnalyze }) {
             transition={{ duration: 0.8, delay: 0.2, ease: 'easeOut' }}
             className="text-text-secondary text-lg md:text-xl mb-10 max-w-xl leading-relaxed"
           >
-            Paste a GitHub URL. Get an interactive dependency graph, AI-powered file summaries, 
+            Paste a GitHub URL. Get an interactive dependency graph, AI-powered file summaries,
             and a guided onboarding path — in seconds.
           </motion.p>
 
@@ -236,11 +236,10 @@ export default function LandingPage({ onAnalyze }) {
               <button
                 id="analyze-btn"
                 onClick={handleAnalyze}
-                className={`absolute right-2 top-1/2 -translate-y-1/2 px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all duration-300 ${
-                  isValid
+                className={`absolute right-2 top-1/2 -translate-y-1/2 px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all duration-300 ${isValid
                     ? 'bg-accent-indigo text-white shadow-glow-indigo animate-pulse-glow cursor-pointer hover:bg-indigo-500'
                     : 'bg-neu-surface text-text-muted cursor-pointer hover:text-text-secondary'
-                }`}
+                  }`}
                 style={
                   isValid
                     ? {}
