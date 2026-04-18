@@ -83,7 +83,7 @@ const heatDotClass = {
   blue: 'heat-dot heat-dot-blue',
 };
 
-function TreeItem({ item, depth = 0, onSelectFile, selectedFile, filter }) {
+function TreeItem({ item, depth = 0, onSelectFile, onSelectFolder, selectedFile, filter }) {
   const [expanded, setExpanded] = useState(item.expanded ?? false);
 
   // Filter logic
@@ -110,7 +110,7 @@ function TreeItem({ item, depth = 0, onSelectFile, selectedFile, filter }) {
     return (
       <div>
         <button
-          onClick={() => setExpanded(!expanded)}
+          onClick={() => { setExpanded(!expanded); if (onSelectFolder) onSelectFolder(item.id); }}
           className={`w-full flex items-center gap-2 py-1.5 px-2 rounded-lg text-sm transition-all duration-200 hover:bg-neu-highlight/50 group`}
           style={{ paddingLeft: `${depth * 16 + 8}px` }}
         >
@@ -139,6 +139,7 @@ function TreeItem({ item, depth = 0, onSelectFile, selectedFile, filter }) {
                   item={child}
                   depth={depth + 1}
                   onSelectFile={onSelectFile}
+                  onSelectFolder={onSelectFolder}
                   selectedFile={selectedFile}
                   filter={filter}
                 />
@@ -175,7 +176,7 @@ function TreeItem({ item, depth = 0, onSelectFile, selectedFile, filter }) {
   );
 }
 
-export default function FileSidebar({ onSelectFile, selectedFile, files = [] }) {
+export default function FileSidebar({ onSelectFile, onSelectFolder, selectedFile, files = [] }) {
   console.log("🗂️ [FileSidebar.jsx] Rendering with files prop:", files);
   const [filter, setFilter] = useState('');
 
@@ -235,6 +236,7 @@ export default function FileSidebar({ onSelectFile, selectedFile, files = [] }) 
             key={item.id}
             item={item}
             onSelectFile={onSelectFile}
+            onSelectFolder={onSelectFolder}
             selectedFile={selectedFile}
             filter={filter}
           />

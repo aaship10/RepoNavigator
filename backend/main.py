@@ -100,7 +100,8 @@ async def analyze_repo(request: AnalyzeRequest):
             "repo_id": repo_key,
             "total_files": len(files),
             "entry_points": entry_points,
-            "file_tree": file_keys 
+            "file_tree": file_keys,
+            "edges": [[src, tgt] for src, tgt in dependencies]
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

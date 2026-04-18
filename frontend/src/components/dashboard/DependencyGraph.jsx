@@ -1,316 +1,741 @@
-import { useCallback, useMemo, useState, useEffect } from 'react';
+import { useCallback, useState, useMemo, useEffect } from 'react';
 import ReactFlow, {
   Controls,
-  MiniMap,
   Background,
   useNodesState,
   useEdgesState,
   Handle,
   Position,
+  ReactFlowProvider
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { motion } from 'framer-motion';
-import { Plus, Minus } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ArrowLeft, GitBranch, Unlink, Grid3X3, Network, ChevronRight } from 'lucide-react';
 
-const categoryColors = {
-  folder: '#A855F7',     // Purple
-  ui: '#60A5FA',         // Blue
-  math: '#FB923C',       // Orange
-  core: '#FB923C',       // Orange
-  algorithm: '#A855F7',  // Purple
-  visualizer: '#2DD4BF', // Teal
-  general: '#94A3B8',    // Slate
-};
+// ─── Colour palette ────────────────────────────────────────────────────────────
+const PALETTE = [
+  '#60A5FA', '#F87171', '#A855F7', '#2DD4BF',
+  '#FBBF24', '#FB923C', '#4ADE80', '#E879F9',
+];
+function folderColor(name, allFolders) {
+  return PALETTE[allFolders.indexOf(name) % PALETTE.length];
+}
 
-const heatColors = {
-  red: '#F87171',
-  yellow: '#FBBF24',
-  grey: '#9CA3AF',
-  hollow: '#64748B',
-  blue: '#60A5FA',
-};
+// ─── Mock data (used when no real apiData yet) ─────────────────────────────────
+const MOCK_EDGES = [
+  ['api/routes.js',   'core/utils.js'],
+  ['api/routes.js',   'core/config.js'],
+  ['api/auth.js',     'auth/jwt.js'],
+  ['api/auth.js',     'db/users.js'],
+  ['ui/Dashboard.jsx','api/routes.js'],
+  ['ui/Profile.jsx',  'api/auth.js'],
+  ['ui/Profile.jsx',  'core/utils.js'],
+  ['core/utils.js',   'db/conn.js'],
+  ['auth/jwt.js',     'core/config.js'],
+  ['auth/oauth.js',   'db/sessions.js'],
+];
+const MOCK_FILE_TREE = [...new Set(MOCK_EDGES.flatMap(([s,t])=>[s,t]))];
 
-/**
- * Custom Node Component: Rich Data Card (Horizontal Flow)
- */
-function CustomNode({ data, selected }) {
-  const isFolder = data.type === 'folder';
-  const accentColor = isFolder ? categoryColors.folder : (categoryColors[data.category?.toLowerCase()] || categoryColors.general);
-  const heatColor = heatColors[data.heat] || '#9CA3AF';
-  const isExpanded = data.isExpanded;
+// ─── Utilities ────────────────────────────────────────────────────────────────
+function topFolder(filePath) {
+  const parts = filePath.split('/');
+  return parts.length > 1 ? parts[0] : '__root__';
+}
+
+/** Get the sub-path relative to a prefix folder */
+function relPath(filePath, prefix) {
+  if (!prefix || prefix === '') return filePath;
+  if (filePath.startsWith(prefix + '/')) return filePath.slice(prefix.length + 1);
+  return filePath;
+}
+
+/** Get all files that live under a given folder prefix */
+function filesUnder(folder, fileTree) {
+  if (!folder || folder === '') return fileTree;
+  return fileTree.filter(f => f.startsWith(folder + '/'));
+}
+
+/** Get the immediate sub-folders under a prefix */
+function getSubFolders(prefix, fileTree) {
+  const files = filesUnder(prefix, fileTree);
+  const subs = new Set();
+  files.forEach(f => {
+    const rel = relPath(f, prefix);
+    const first = rel.split('/')[0];
+    // Only count as sub-folder if the file isn't directly in this folder
+    if (rel.includes('/')) subs.add(first);
+  });
+  return [...subs];
+}
+
+/** Get direct files (not inside a sub-folder) in a prefix */
+function getDirectFiles(prefix, fileTree) {
+  const files = filesUnder(prefix, fileTree);
+  return files.filter(f => {
+    const rel = relPath(f, prefix);
+    return !rel.includes('/');
+  });
+}
+
+function buildMatrixData(subFolders, prefix, edges, fileTree) {
+  const map = {};
+  subFolders.forEach(f => { map[f] = {}; subFolders.forEach(t => { map[f][t] = 0; }); });
+
+  (edges || []).forEach(([src, tgt]) => {
+    const srcFiles = filesUnder(prefix, [src]);
+    const tgtFiles = filesUnder(prefix, [tgt]);
+    if (srcFiles.length === 0 || tgtFiles.length === 0) return;
+
+    const sf = relPath(src, prefix).split('/')[0];
+    const tf = relPath(tgt, prefix).split('/')[0];
+    if (sf !== tf && map[sf] && map[sf][tf] !== undefined) map[sf][tf]++;
+  });
+  return map;
+}
+
+/** Assign a heat level based on how many edges touch this file */
+function computeHeat(fileId, rawEdges) {
+  let count = 0;
+  (rawEdges || []).forEach(([s, t]) => { if (s === fileId || t === fileId) count++; });
+  if (count >= 4) return 'red';
+  if (count >= 2) return 'yellow';
+  return 'blue';
+}
+
+/** Build RF nodes + edges for files under a folder prefix */
+function buildFolderGraphData(prefix, fileTree, rawEdges) {
+  const files = filesUnder(prefix, fileTree);
+  const allFolders = getSubFolders(prefix, fileTree);
+  const color = '#60A5FA';
+
+  const nodes = files.map(f => ({
+    id: f, type: 'custom',
+    position: { x: 0, y: 0 },
+    data: {
+      label: f.split('/').pop(),
+      folder: relPath(f, prefix).includes('/') ? relPath(f, prefix).split('/')[0] : prefix || 'root',
+      accent: allFolders.length > 0
+        ? folderColor(relPath(f, prefix).split('/')[0], allFolders)
+        : color,
+      heat: computeHeat(f, rawEdges),
+      description: relPath(f, prefix),
+    }
+  }));
+
+  const fileSet = new Set(files);
+  const edges = (rawEdges || [])
+    .filter(([s, t]) => fileSet.has(s) && fileSet.has(t))
+    .map(([s, t], i) => ({
+      id: `fg${i}`, source: s, target: t, animated: true,
+      style: { stroke: 'rgba(255,255,255,0.15)', strokeWidth: 1.5 }
+    }));
+
+  return { nodes, edges };
+}
+
+/** Build RF nodes for cross-sub-folder view */
+function buildCrossSubFolderData(sub1, sub2, prefix, rawEdges, fileTree, allSubs) {
+  const fullPrefix1 = prefix ? `${prefix}/${sub1}` : sub1;
+  const fullPrefix2 = prefix ? `${prefix}/${sub2}` : sub2;
+
+  const files1 = filesUnder(fullPrefix1, fileTree);
+  const files2 = filesUnder(fullPrefix2, fileTree);
+  const set1 = new Set(files1);
+  const set2 = new Set(files2);
+  const color1 = folderColor(sub1, allSubs);
+  const color2 = folderColor(sub2, allSubs);
+
+  const relevantEdges = (rawEdges || []).filter(([s, t]) =>
+    (set1.has(s) && set2.has(t)) || (set2.has(s) && set1.has(t))
+  );
+  const touchedFiles = new Set();
+  relevantEdges.forEach(([s, t]) => { touchedFiles.add(s); touchedFiles.add(t); });
+
+  const nodes = [...touchedFiles].map(f => ({
+    id: f, type: 'custom',
+    position: { x: 0, y: 0 },
+    data: {
+      label: f.split('/').pop(),
+      folder: set1.has(f) ? sub1 : sub2,
+      accent: set1.has(f) ? color1 : color2,
+      heat: computeHeat(f, rawEdges),
+      description: set1.has(f) ? `Depends on ${sub2}/` : `Used by ${sub1}/`,
+    }
+  }));
+
+  const edges = relevantEdges.map(([s, t], i) => ({
+    id: `cs${i}`, source: s, target: t, animated: true,
+    style: { stroke: 'rgba(255,255,255,0.15)', strokeWidth: 1.5 }
+  }));
+
+  return { nodes, edges };
+}
+
+// ─── Toast ─────────────────────────────────────────────────────────────────────
+function DecoupledToast({ visible }) {
+  return (
+    <AnimatePresence>
+      {visible && (
+        <motion.div
+          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0,  scale: 1    }}
+          exit   ={{ opacity: 0, y: 10, scale: 0.97  }}
+          transition={{ type: 'spring', damping: 22, stiffness: 260 }}
+          className="absolute bottom-10 left-1/2 -translate-x-1/2 z-50
+                     flex items-center gap-3 px-5 py-3 rounded-2xl"
+          style={{
+            background: '#1E232E',
+            boxShadow: '6px 6px 14px #141820, -6px -6px 14px #2a3248, inset 0 0 0 1px rgba(255,255,255,0.06)',
+            backdropFilter: 'blur(12px)',
+            minWidth: 340,
+          }}
+        >
+          <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
+            style={{ background: '#1A1F2B', boxShadow: 'inset 2px 2px 5px #141820, inset -2px -2px 5px #283048' }}>
+            <Unlink size={14} className="text-cyan-400" />
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-white">Decoupled</p>
+            <p className="text-[10px] text-gray-400 mt-0.5 leading-relaxed">
+              No direct dependencies between these modules.
+            </p>
+          </div>
+          <div className="ml-auto w-1.5 h-1.5 rounded-full bg-cyan-400 flex-shrink-0"
+            style={{ boxShadow: '0 0 6px #22d3ee' }} />
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+// ─── Custom RF Node (Rich neumorphic style) ─────────────────────────────────────
+function GraphNode({ data, selected }) {
+  const c = data.accent || '#94A3B8';
+  const heatColor = data.heat === 'red' ? '#F87171'
+    : data.heat === 'yellow' ? '#FBBF24' : '#60A5FA';
 
   return (
     <motion.div
-      className="relative group cursor-pointer"
-      whileHover={{ scale: 1.02 }}
+      className="relative cursor-pointer group"
+      whileHover={{ scale: 1.05 }}
       transition={{ duration: 0.2 }}
     >
-      {/* Horizontal Handles for Left-To-Right Tree Flow */}
-      <Handle type="target" position={Position.Left} style={{ background: accentColor, width: 8, height: 8, border: 'none', left: -4 }} />
-      <Handle type="source" position={Position.Right} style={{ background: accentColor, width: 8, height: 8, border: 'none', right: -4 }} />
+      <Handle type="target" position={Position.Top}
+        style={{ background: c, border: 'none', top: -4, width: 8, height: 8 }} />
+      <Handle type="source" position={Position.Bottom}
+        style={{ background: c, border: 'none', bottom: -4, width: 8, height: 8 }} />
 
       <div
-        className="w-[240px] px-4 py-3 rounded-xl transition-all duration-300 relative overflow-hidden"
+        className="w-[220px] px-4 py-3 rounded-xl relative overflow-hidden"
         style={{
           background: '#1E232E',
           boxShadow: selected
-            ? 'inset 4px 4px 10px #141820, inset -4px -4px 10px #283048'
-            : '8px 8px 16px #141820, -8px -8px 16px #283048',
-          border: selected ? `1px solid ${accentColor}44` : '1px solid rgba(255,255,255,0.05)',
+            ? `0 0 28px ${c}44, inset 2px 2px 5px #283048, inset -2px -2px 5px #141820`
+            : '5px 5px 12px #141820, -5px -5px 12px #2a3240',
+          border: selected ? `1px solid ${c}88` : '1px solid rgba(255,255,255,0.05)',
+          transition: 'box-shadow 0.3s ease, border 0.3s ease',
         }}
       >
-        {/* Top-Right Category Accent Triangle */}
         <div
-          className="absolute top-0 right-0 w-10 h-10 pointer-events-none"
+          className="absolute top-0 right-0 w-9 h-9 pointer-events-none"
           style={{
-            background: accentColor,
+            background: c,
             clipPath: 'polygon(100% 0, 0 0, 100% 100%)',
             opacity: 0.8,
           }}
         />
-
-        {/* Expansion Indicator for Folders */}
-        {isFolder && (
-          <div className="absolute top-1.5 right-1.5 z-10 text-white/80">
-            {isExpanded ? <Minus size={12} strokeWidth={3} /> : <Plus size={12} strokeWidth={3} />}
-          </div>
-        )}
-
-        {/* Content Stack */}
-        <div className="flex flex-col gap-1 pr-6">
+        <div className="flex flex-col gap-1.5 pr-5">
           <div className="flex items-center gap-2">
             <div
-              className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+              className="w-2 h-2 rounded-full flex-shrink-0"
               style={{ background: heatColor, boxShadow: `0 0 8px ${heatColor}88` }}
             />
-            <span className="text-[10px] font-mono text-gray-400 truncate max-w-[180px]">
+            <span className="text-[11px] font-mono text-gray-200 truncate max-w-[160px]">
               {data.label}
             </span>
           </div>
-
-          <h3 className="text-sm font-medium text-gray-100 mt-1 leading-tight truncate">
-            {data.description || (isFolder ? 'Directory' : 'File')}
-          </h3>
-
-          <div className="flex items-center gap-3 mt-2 text-[10px] text-gray-500 font-medium">
-            <span className="opacity-50 uppercase tracking-tighter">
-              {isFolder ? 'Folder' : (data.category || 'File')}
+          {data.description && (
+            <p className="text-[10px] text-gray-400 leading-snug truncate">
+              {data.description}
+            </p>
+          )}
+          <div className="flex items-center gap-2 mt-0.5">
+            <span
+              className="text-[9px] uppercase tracking-wider font-semibold"
+              style={{ color: c, opacity: 0.75 }}
+            >
+              {data.folder}/
             </span>
-            {isFolder && data.childCount > 0 && (
-              <span className="ml-auto text-indigo-400">
-                {data.childCount} Items
-              </span>
-            )}
           </div>
         </div>
-
-        {/* Selected Highlight Overlay */}
-        {selected && (
-          <motion.div
-            className="absolute inset-0 rounded-xl pointer-events-none"
-            style={{ boxShadow: `0 0 20px ${accentColor}11` }}
-            layoutId="selectedNodeGlow"
-          />
-        )}
       </div>
     </motion.div>
   );
 }
+const nodeTypes = { custom: GraphNode };
 
-const nodeTypes = { custom: CustomNode };
-
-/**
- * Utility: Flat Array ["src/App.js"] -> Nested Tree Objects
- */
-function buildTreeFromPaths(paths) {
-  if (!paths || !Array.isArray(paths) || paths.length === 0) return [];
-  
-  const root = [];
-  paths.forEach(path => {
-    const parts = path.split('/').filter(Boolean); // Clean any empty parts
-    let currentLevel = root;
-    
-    parts.forEach((part, index) => {
-      const isFile = index === parts.length - 1;
-      const id = parts.slice(0, index + 1).join('/');
-      let existingNode = currentLevel.find(node => node.id === id);
-
-      if (existingNode) {
-        currentLevel = existingNode.children;
-      } else {
-        const newNode = {
-          id: id,
-          name: part,
-          type: isFile ? 'file' : 'folder',
-          icon: isFile ? part.split('.').pop() : 'folder',
-          heat: 'blue', 
-          children: []
-        };
-        currentLevel.push(newNode);
-        currentLevel = newNode.children;
-      }
-    });
+// ─── DAG Layout ────────────────────────────────────────────────────────────────
+function layoutDAG(nodes, edges) {
+  if (nodes.length === 0) return nodes;
+  const adj = {};
+  const inDeg = {};
+  nodes.forEach(n => { adj[n.id] = []; inDeg[n.id] = 0; });
+  edges.forEach(e => {
+    if (adj[e.source]) adj[e.source].push(e.target);
+    if (inDeg[e.target] !== undefined) inDeg[e.target]++;
   });
-  return root;
+  const layers = {};
+  const roots = nodes.filter(n => inDeg[n.id] === 0).map(n => n.id);
+  if (roots.length === 0) roots.push(nodes[0].id);
+  roots.forEach(id => { layers[id] = 0; });
+  const visited = new Set(roots);
+  let front = [...roots];
+  while (front.length > 0) {
+    const next = [];
+    for (const id of front) {
+      for (const child of (adj[id] || [])) {
+        layers[child] = Math.max(layers[child] || 0, layers[id] + 1);
+        if (!visited.has(child)) { visited.add(child); next.push(child); }
+      }
+    }
+    front = next;
+  }
+  nodes.forEach(n => { if (layers[n.id] === undefined) layers[n.id] = 0; });
+  const layerGroups = {};
+  nodes.forEach(n => {
+    const l = layers[n.id];
+    if (!layerGroups[l]) layerGroups[l] = [];
+    layerGroups[l].push(n);
+  });
+  const X_GAP = 280;
+  const Y_GAP = 160;
+  return nodes.map(n => {
+    const layer = layers[n.id];
+    const group = layerGroups[layer];
+    const idx   = group.indexOf(n);
+    const total = group.length;
+    const xOffset = -(total - 1) * X_GAP / 2;
+    return { ...n, position: { x: xOffset + idx * X_GAP, y: layer * Y_GAP } };
+  });
 }
 
-/**
- * Layout Logic (Horizontal: Left to Right)
- */
-const getTreeLayout = (tree, expandedIds) => {
-  const nodes = [];
-  const edges = [];
-  const nodeWidth = 320; // Horizontal gap between layers
-  const nodeHeight = 110; // Vertical gap between siblings
+// ─── View Toggle ───────────────────────────────────────────────────────────────
+function ViewToggle({ view, setView, isLeafFolder }) {
+  const options = [
+    { key: 'matrix', label: 'Matrix', Icon: Grid3X3, disabled: isLeafFolder },
+    { key: 'graph',  label: 'Graph',  Icon: Network, disabled: false },
+  ];
 
-  // Calculate vertical height required for a subtree
-  const getSubtreeHeight = (item) => {
-    if (!expandedIds.has(item.id) || !item.children || item.children.length === 0) {
-      return nodeHeight;
-    }
-    return item.children.reduce((acc, child) => acc + getSubtreeHeight(child), 0);
-  };
+  return (
+    <div className="relative flex items-center">
+      <div
+        className="flex items-center rounded-full p-1 relative"
+        style={{
+          background: '#1A1F2B',
+          boxShadow: 'inset 3px 3px 7px #131722, inset -3px -3px 7px #232a3a',
+          border: '1px solid rgba(255,255,255,0.03)',
+        }}
+      >
+        {/* Sliding active pill */}
+        <motion.div
+          className="absolute rounded-full"
+          style={{
+            width: 84, height: 30, top: 4,
+            background: '#1E232E',
+            boxShadow: '4px 4px 10px #131722, -4px -4px 10px #2a3248',
+            border: '1px solid rgba(255,255,255,0.06)',
+          }}
+          animate={{ x: view === 'matrix' ? 0 : 88 }}
+          transition={{ type: 'spring', damping: 28, stiffness: 380 }}
+        />
+        {options.map(({ key, label, Icon, disabled }) => (
+          <button
+            key={key}
+            onClick={() => !disabled && setView(key)}
+            disabled={disabled}
+            className="relative z-10 flex items-center gap-1.5 px-4 py-1.5 rounded-full transition-colors duration-200"
+            style={{
+              width: 88,
+              color: view === key ? '#E2E8F0' : disabled ? '#374151' : '#6B7280',
+              cursor: disabled ? 'not-allowed' : 'pointer',
+              opacity: disabled ? 0.3 : 1,
+            }}
+          >
+            <Icon size={12} />
+            <span className="text-[10px] font-semibold uppercase tracking-wider">{label}</span>
+          </button>
+        ))}
+      </div>
+      {/* Leaf tooltip */}
+      {isLeafFolder && (
+        <motion.div
+          initial={{ opacity: 0, x: -5 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="ml-3 text-[9px] text-gray-600 font-mono whitespace-nowrap"
+        >
+          Matrix view requires sub-folders
+        </motion.div>
+      )}
+    </div>
+  );
+}
 
-  const processNode = (item, parentId, depth, yOffset) => {
-    const isExpanded = expandedIds.has(item.id);
-    const subtreeHeight = getSubtreeHeight(item);
-
-    // X is based on depth, Y is centered within its required subtree height
-    const x = depth * nodeWidth;
-    const y = yOffset + subtreeHeight / 2 - nodeHeight / 2;
-
-    nodes.push({
-      id: item.id,
-      type: 'custom',
-      position: { x, y },
-      data: {
-        label: item.id,
-        type: item.type,
-        category: item.type === 'folder' ? 'Folder' : item.icon,
-        heat: item.heat || 'grey',
-        description: item.name,
-        isExpanded,
-        childCount: item.children?.length || 0,
-      },
-    });
-
-    if (parentId) {
-      edges.push({
-        id: `e-${parentId}-${item.id}`,
-        source: parentId,
-        target: item.id,
-        style: { stroke: 'rgba(255,255,255,0.15)', strokeWidth: 2 },
-        type: 'smoothstep', 
-      });
-    }
-
-    if (isExpanded && item.children) {
-      let currentY = yOffset;
-      item.children.forEach(child => {
-        processNode(child, item.id, depth + 1, currentY);
-        currentY += getSubtreeHeight(child);
-      });
-    }
-  };
-
-  let rootYOffset = 0;
-  tree.forEach(root => {
-    processNode(root, null, 0, rootYOffset);
-    rootYOffset += getSubtreeHeight(root);
+// ─── Breadcrumb ────────────────────────────────────────────────────────────────
+function Breadcrumb({ currentFolder, onNavigate }) {
+  const parts = currentFolder ? currentFolder.split('/') : [];
+  const crumbs = [{ label: 'root', path: '' }];
+  let acc = '';
+  parts.forEach(p => {
+    acc = acc ? `${acc}/${p}` : p;
+    crumbs.push({ label: p, path: acc });
   });
 
-  return { nodes, edges };
-};
+  return (
+    <div className="flex items-center gap-1 text-[10px] font-mono">
+      {crumbs.map((c, i) => (
+        <div key={c.path} className="flex items-center gap-1">
+          {i > 0 && <ChevronRight size={10} className="text-gray-700" />}
+          <button
+            onClick={() => onNavigate(c.path)}
+            className="transition-colors duration-200 hover:text-cyan-400"
+            style={{
+              color: i === crumbs.length - 1 ? '#E2E8F0' : '#6B7280',
+              cursor: 'pointer',
+            }}
+          >
+            {c.label}
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
 
-export default function DependencyGraph({ onNodeClick, selectedNode, files = [] }) {
-  const [expandedIds, setExpandedIds] = useState(new Set());
+// ─── Axis Button ───────────────────────────────────────────────────────────────
+function AxisButton({ label, color, isHighlighted, onClick, isRow = false }) {
+  const [hovered, setHovered] = useState(false);
+  const glow = hovered || isHighlighted;
+  return (
+    <motion.button
+      onHoverStart={() => setHovered(true)}
+      onHoverEnd  ={() => setHovered(false)}
+      onClick={onClick}
+      whileHover={{ scale: 1.06 }}
+      whileTap  ={{ scale: 0.95 }}
+      className="flex items-center justify-center rounded-xl cursor-pointer select-none"
+      style={{
+        width: 64, height: isRow ? 64 : 28,
+        background: '#1E232E',
+        boxShadow: glow
+          ? `5px 5px 12px #141820, -5px -5px 12px #2a3248, 0 0 16px ${color}33`
+          : '5px 5px 12px #141820, -5px -5px 12px #2a3248',
+        border: `1px solid ${glow ? color + '44' : 'rgba(255,255,255,0.04)'}`,
+        color: glow ? color : '#555E6E',
+        transition: 'box-shadow 0.3s ease, border-color 0.3s ease, color 0.3s ease',
+      }}
+    >
+      <span className="font-mono font-medium" style={{
+        fontSize: 10, letterSpacing: '0.06em',
+      }}>{label}</span>
+    </motion.button>
+  );
+}
 
-  // Auto-expand the root level when files first load
-  useEffect(() => {
-    if (files.length > 0 && expandedIds.size === 0) {
-      const tree = buildTreeFromPaths(files);
-      const roots = new Set();
-      tree.forEach(node => roots.add(node.id));
-      setExpandedIds(roots);
-    }
-  }, [files]); // Intentionally omitting expandedIds to only run once per repo
+// ─── Macro Matrix ──────────────────────────────────────────────────────────────
+const CELL_SIZE = 64;
+const CELL_GAP  = 8;
 
-  const { nodes: initialNodes, edges: initialEdges } = useMemo(() => {
-    const tree = buildTreeFromPaths(files);
-    return getTreeLayout(tree, expandedIds);
-  }, [files, expandedIds]);
+function MacroMatrix({ subFolders, matrixData, onCellClick, onAxisClick }) {
+  const [hoveredRow, setHoveredRow] = useState(null);
+  const [hoveredCol, setHoveredCol] = useState(null);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const maxVal = useMemo(() => {
+    let m = 1;
+    subFolders.forEach(r => subFolders.forEach(c => { if ((matrixData[r]?.[c] || 0) > m) m = matrixData[r][c]; }));
+    return m;
+  }, [subFolders, matrixData]);
 
-  // Sync state when layout recalculates
-  useEffect(() => {
-    setNodes(initialNodes);
-    setEdges(initialEdges);
-  }, [initialNodes, initialEdges, setNodes, setEdges]);
-
-  const handleNodeClick = useCallback((event, node) => {
-    const clickedId = node.id;
-    const item = nodes.find(n => n.id === clickedId);
-
-    if (item?.data.type === 'folder') {
-      setExpandedIds(prev => {
-        const next = new Set(prev);
-        if (next.has(clickedId)) {
-          // Collapse
-          next.delete(clickedId);
-        } else {
-          // Expand + Accordion Logic: Collapse siblings
-          const parentPath = clickedId.substring(0, clickedId.lastIndexOf('/')) || 'root';
-          prev.forEach(id => {
-            const siblingParentPath = id.substring(0, id.lastIndexOf('/')) || 'root';
-            // If it shares a parent and is at the same depth, close it
-            if (siblingParentPath === parentPath && id !== clickedId && id.split('/').length === clickedId.split('/').length) {
-              next.delete(id);
-            }
-          });
-          next.add(clickedId);
-        }
-        return next;
-      });
-    }
-
-    if (onNodeClick) onNodeClick(clickedId);
-  }, [nodes, onNodeClick]);
-
-  // Safety fallback while waiting for API data
-  if (!files || files.length === 0) {
+  if (subFolders.length === 0) {
     return (
-      <div className="w-full h-full flex items-center justify-center text-gray-500 font-mono text-sm" style={{ background: '#1E232E' }}>
-        Awaiting repository data...
+      <div className="w-full h-full flex items-center justify-center">
+        <p className="text-xs font-mono text-gray-600 uppercase tracking-widest">
+          No sub-folders to display.
+        </p>
       </div>
     );
   }
 
   return (
+    <div className="w-full h-full flex flex-col items-center justify-center relative overflow-auto">
+      <p className="absolute top-5 text-[10px] font-mono tracking-[0.2em] text-gray-700 uppercase pointer-events-none">
+        Dependency Structure Matrix
+      </p>
+
+      <div className="flex flex-col">
+        <div className="flex items-end" style={{ marginLeft: CELL_SIZE + CELL_GAP + 4, gap: CELL_GAP, marginBottom: CELL_GAP }}>
+          {subFolders.map(col => (
+            <AxisButton key={`h-${col}`} label={col}
+              color={folderColor(col, subFolders)}
+              isHighlighted={hoveredCol === col}
+              onClick={() => onAxisClick(col)} />
+          ))}
+        </div>
+        {subFolders.map(row => (
+          <div key={`row-${row}`} className="flex items-center" style={{ gap: CELL_GAP, marginBottom: CELL_GAP }}>
+            <AxisButton label={row} color={folderColor(row, subFolders)}
+              isHighlighted={hoveredRow === row} isRow onClick={() => onAxisClick(row)} />
+            {subFolders.map(col => {
+              const count    = matrixData[row]?.[col] || 0;
+              const isActive = count > 0 && row !== col;
+              const isDiag   = row === col;
+              const color    = folderColor(col, subFolders);
+              const intensity = isActive ? Math.max(0.25, count / maxVal) : 0;
+              return (
+                <motion.div key={`${row}-${col}`}
+                  onHoverStart={() => { setHoveredRow(row); setHoveredCol(col); }}
+                  onHoverEnd  ={() => { setHoveredRow(null); setHoveredCol(null); }}
+                  onClick={() => !isDiag && onCellClick(row, col, isActive)}
+                  whileHover={isDiag ? {} : { scale: 1.1, zIndex: 10 }}
+                  className="rounded-xl relative flex items-center justify-center"
+                  style={{
+                    width: CELL_SIZE, height: CELL_SIZE,
+                    cursor: isDiag ? 'default' : 'pointer',
+                    background: '#1E232E',
+                    boxShadow: isDiag
+                      ? 'inset 3px 3px 7px #141820, inset -3px -3px 7px #283048'
+                      : isActive
+                        ? '6px 6px 14px #141820, -6px -6px 14px #2a3248'
+                        : 'inset 4px 4px 8px #141820, inset -4px -4px 8px #283048',
+                    border: isActive
+                      ? `1px solid ${color}${Math.round(intensity * 70).toString(16).padStart(2,'0')}`
+                      : '1px solid transparent',
+                    opacity: isDiag ? 0.25 : 1,
+                    transition: 'box-shadow 0.3s ease, border 0.3s ease',
+                  }}
+                >
+                  {isActive && (
+                    <>
+                      <div className="w-2 h-2 rounded-full absolute" style={{
+                        background: color, opacity: 0.4 + intensity * 0.6,
+                        boxShadow: `0 0 ${8 + intensity * 14}px ${color}, 0 0 ${20 + intensity * 20}px ${color}40`,
+                      }} />
+                      <span className="absolute bottom-1 right-1.5 text-[7px] font-mono"
+                        style={{ color, opacity: 0.5 }}>{count}</span>
+                    </>
+                  )}
+                  {isDiag && <div className="w-1 h-1 rounded-full bg-gray-700" />}
+                </motion.div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+
+      <p className="absolute bottom-5 text-[10px] font-mono tracking-[0.2em] text-gray-700 uppercase pointer-events-none">
+        Click a lit cell or axis label to explore
+      </p>
+    </div>
+  );
+}
+
+// ─── File Graph Canvas ─────────────────────────────────────────────────────────
+function FileGraph({ graphData, onNodeClick }) {
+  const initNodes = useMemo(() => layoutDAG(graphData.nodes, graphData.edges), [graphData]);
+  const [nodes, , onNodesChange] = useNodesState(initNodes);
+  const [edges, , onEdgesChange] = useEdgesState(graphData.edges);
+  const isEmpty = nodes.length === 0;
+
+  return (
+    <div className="w-full h-full relative">
+      {isEmpty ? (
+        <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-gray-600">
+          <GitBranch size={32} strokeWidth={1} className="opacity-25" />
+          <p className="text-sm font-mono">No file dependencies found.</p>
+          <p className="text-[10px] opacity-40">This folder may contain independent files.</p>
+        </div>
+      ) : (
+        <ReactFlow
+          nodes={nodes} edges={edges}
+          onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
+          onNodeClick={(_, node) => onNodeClick && onNodeClick(node.id)}
+          nodeTypes={nodeTypes}
+          fitView fitViewOptions={{ padding: 0.35 }}
+          minZoom={0.2} maxZoom={2}
+          proOptions={{ hideAttribution: true }}
+        >
+          <Background variant="dots" gap={32} size={1} color="rgba(255,255,255,0.04)" />
+          <Controls showInteractive={false} position="bottom-left"
+            style={{ marginBottom: 20, marginLeft: 20 }} />
+        </ReactFlow>
+      )}
+    </div>
+  );
+}
+
+// ─── Root Export ──────────────────────────────────────────────────────────────
+export default function DependencyGraph({ onNodeClick, onMatrixCellClick, apiData, currentFolder, onNavigateFolder }) {
+  const fileTree = apiData?.file_tree?.length ? apiData.file_tree : MOCK_FILE_TREE;
+  const rawEdges = apiData?.edges?.length     ? apiData.edges      : MOCK_EDGES;
+
+  // Derive context from currentFolder
+  const folderPrefix = currentFolder || '';
+  const subFolders = useMemo(() => getSubFolders(folderPrefix, fileTree), [folderPrefix, fileTree]);
+  const isLeafFolder = subFolders.length === 0;
+
+  // View state: auto-lock to graph if leaf
+  const [viewPref, setViewPref] = useState('matrix');
+  const view = isLeafFolder ? 'graph' : viewPref;
+
+  // When currentFolder changes, reset to matrix if available
+  useEffect(() => {
+    setViewPref(isLeafFolder ? 'graph' : 'matrix');
+    setCrossCellCtx(null);
+  }, [currentFolder, isLeafFolder]);
+
+  // Matrix data for sub-folders
+  const matrixData = useMemo(() =>
+    buildMatrixData(subFolders, folderPrefix, rawEdges, fileTree),
+    [subFolders, folderPrefix, rawEdges, fileTree]
+  );
+
+  // Toast
+  const [showToast, setShowToast] = useState(false);
+  useEffect(() => {
+    if (showToast) {
+      const id = setTimeout(() => setShowToast(false), 3000);
+      return () => clearTimeout(id);
+    }
+  }, [showToast]);
+
+  // Cross-cell context (when user clicks a matrix cell, switch to graph with that context)
+  const [crossCellCtx, setCrossCellCtx] = useState(null);
+
+  const graphData = useMemo(() => {
+    if (crossCellCtx) {
+      return buildCrossSubFolderData(
+        crossCellCtx.sub1, crossCellCtx.sub2,
+        folderPrefix, rawEdges, fileTree, subFolders
+      );
+    }
+    return buildFolderGraphData(folderPrefix, fileTree, rawEdges);
+  }, [crossCellCtx, folderPrefix, rawEdges, fileTree, subFolders]);
+
+  const handleCellClick = useCallback((row, col, isActive) => {
+    if (!isActive) {
+      setShowToast(false);
+      requestAnimationFrame(() => setShowToast(true));
+      return;
+    }
+    // Switch to graph view showing cross-folder dependency
+    setCrossCellCtx({ sub1: row, sub2: col });
+    setViewPref('graph');
+    if (onMatrixCellClick) onMatrixCellClick({ sub1: row, sub2: col, folder: folderPrefix });
+  }, [onMatrixCellClick, folderPrefix]);
+
+  const handleAxisClick = useCallback((sub) => {
+    // Navigate into that sub-folder
+    const newPath = folderPrefix ? `${folderPrefix}/${sub}` : sub;
+    if (onNavigateFolder) onNavigateFolder(newPath);
+  }, [folderPrefix, onNavigateFolder]);
+
+  const handleBackFromCross = useCallback(() => {
+    setCrossCellCtx(null);
+    setViewPref('matrix');
+  }, []);
+
+  return (
     <div
-      className="w-full h-full rounded-2xl overflow-hidden"
+      className="w-full h-full rounded-2xl overflow-hidden relative flex flex-col"
       style={{
         background: '#1E232E',
         boxShadow: 'inset 3px 3px 8px #141820, inset -3px -3px 8px #283048',
       }}
     >
-      <ReactFlow
-        nodes={nodes.map(n => ({ ...n, selected: n.id === selectedNode }))}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onNodeClick={handleNodeClick}
-        nodeTypes={nodeTypes}
-        fitView
-        fitViewOptions={{ padding: 0.2 }}
-        minZoom={0.1}
-        maxZoom={1.5}
-        proOptions={{ hideAttribution: true }}
-      >
-        <Background variant="dots" gap={32} size={1} color="rgba(255,255,255,0.05)" />
-        <Controls showInteractive={false} position="bottom-left" style={{ marginBottom: 20, marginLeft: 20 }} />
-      </ReactFlow>
+      {/* ── Top bar: Breadcrumb + View Toggle ── */}
+      <div className="flex items-center justify-between px-5 pt-4 pb-2 flex-shrink-0 z-20">
+        <Breadcrumb currentFolder={folderPrefix} onNavigate={(path) => {
+          if (onNavigateFolder) onNavigateFolder(path);
+        }} />
+        <ViewToggle view={view} setView={(v) => { setCrossCellCtx(null); setViewPref(v); }} isLeafFolder={isLeafFolder} />
+      </div>
+
+      {/* ── Canvas ── */}
+      <div className="flex-1 relative" style={{ minHeight: 0 }}>
+        <AnimatePresence mode="wait">
+          {view === 'matrix' && !crossCellCtx ? (
+            <motion.div
+              key="matrix-view"
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1,    opacity: 1 }}
+              exit   ={{ scale: 0.95, opacity: 0 }}
+              transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+              className="w-full h-full absolute inset-0"
+            >
+              <MacroMatrix
+                subFolders={subFolders}
+                matrixData={matrixData}
+                onCellClick={handleCellClick}
+                onAxisClick={handleAxisClick}
+              />
+            </motion.div>
+          ) : (
+            <motion.div
+              key={`graph-view-${JSON.stringify(crossCellCtx)}`}
+              initial={{ scale: 1.05, opacity: 0 }}
+              animate={{ scale: 1,    opacity: 1 }}
+              exit   ={{ scale: 1.05, opacity: 0 }}
+              transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+              className="w-full h-full absolute inset-0"
+            >
+              <ReactFlowProvider>
+                <FileGraph graphData={graphData} onNodeClick={onNodeClick} />
+              </ReactFlowProvider>
+
+              {/* Cross-cell back button */}
+              {crossCellCtx && (
+                <motion.button
+                  initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
+                  onClick={handleBackFromCross}
+                  whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}
+                  className="absolute top-4 left-4 z-50 flex items-center gap-2 px-4 py-2 rounded-lg
+                             text-white/70 hover:text-white transition-colors"
+                  style={{
+                    background: 'rgba(30,35,46,0.6)',
+                    boxShadow: '4px 4px 10px rgba(0,0,0,0.3)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    backdropFilter: 'blur(10px)',
+                  }}
+                >
+                  <ArrowLeft size={14} />
+                  <span className="text-[10px] font-medium uppercase tracking-wider">Back to Matrix</span>
+                </motion.button>
+              )}
+
+              {/* Cross-cell heading badge */}
+              {crossCellCtx && (
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-1.5
+                                rounded-2xl text-[10px] font-mono pointer-events-none z-40"
+                  style={{
+                    background: 'rgba(30,35,46,0.8)',
+                    border: '1px solid rgba(255,255,255,0.06)',
+                    backdropFilter: 'blur(12px)',
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.2)',
+                  }}>
+                  <span className="font-semibold" style={{ color: folderColor(crossCellCtx.sub1, subFolders) }}>
+                    {crossCellCtx.sub1}/
+                  </span>
+                  <span className="text-gray-600">→</span>
+                  <span className="font-semibold" style={{ color: folderColor(crossCellCtx.sub2, subFolders) }}>
+                    {crossCellCtx.sub2}/
+                  </span>
+                </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <DecoupledToast visible={showToast} />
+      </div>
     </div>
   );
 }

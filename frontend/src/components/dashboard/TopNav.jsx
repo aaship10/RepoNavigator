@@ -11,9 +11,9 @@ export default function TopNav({ repoUrl }) {
       initial={{ opacity: 0, y: -20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: 'easeOut' }}
-      className="flex items-center gap-4 px-4 h-full"
+      className="flex items-center gap-4 px-4 h-full w-full"
       style={{
-        background: 'rgba(30, 35, 46, 0.8)',
+        background: 'rgba(30, 35, 46, 0.85)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
         borderBottom: '1px solid rgba(255,255,255,0.03)',
