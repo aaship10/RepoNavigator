@@ -88,11 +88,10 @@ import posixpath
 from pathlib import Path
 
 # --- FILTERING CONSTANTS ---
-ALLOWED_EXTENSIONS = {".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".java", ".cpp", ".h"}
+ALLOWED_EXTENSIONS = {".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".java", ".cpp", ".h", ".html"}
 IGNORED_DIRS = {"node_modules", "venv", ".venv", "__pycache__", "dist", "build", "out", "target", "public", "assets"}
 IGNORED_FILES = {
-    "package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
-    "dockerfile", "docker-compose.yml", "readme.md", "license", "requirements.txt", "index.html"
+    "package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "dockerfile", "docker-compose.yml", "readme.md", "license", "requirements.txt"
 }
 IGNORED_PATTERNS = {
     ".config.js", ".config.ts", ".config.mjs", ".setup.js", ".setup.ts"
