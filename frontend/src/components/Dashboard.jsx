@@ -6,36 +6,6 @@ import DependencyGraph from './dashboard/DependencyGraph';
 import AIPanel from './dashboard/AIPanel';
 import OnboardingStrip from './dashboard/OnboardingStrip';
 
-// Map file IDs to graph node IDs
-const fileToNodeMap = {
-  'src/components/App.tsx': 'app',
-  'src/components/Header.tsx': 'header',
-  'src/components/Sidebar.tsx': 'sidebar',
-  'src/components/Dashboard.tsx': 'dashboard',
-  'src/components/AuthGuard.tsx': 'useAuth',
-  'src/components/Modal.tsx': 'modal',
-  'src/components/OldBanner.tsx': 'old-banner',
-  'src/hooks/useAuth.ts': 'useAuth',
-  'src/hooks/useApi.ts': 'useApi',
-  'src/hooks/useTheme.ts': 'useTheme',
-  'src/services/api.ts': 'api',
-  'src/services/auth.ts': 'auth-service',
-  'src/services/analytics.ts': 'analytics',
-  'src/services/legacy-logger.ts': 'legacy-logger',
-  'src/utils/helpers.ts': 'helpers',
-  'src/utils/constants.ts': 'constants',
-  'src/utils/validators.ts': 'validators',
-  'src/pages/Home.tsx': 'home',
-  'src/pages/Login.tsx': 'login',
-  'src/pages/Settings.tsx': 'settings',
-  'src/pages/NotFound.tsx': 'notfound',
-  'src/main.tsx': 'main',
-  'server/index.ts': 'server-index',
-  'server/routes.ts': 'routes',
-  'server/middleware.ts': 'middleware',
-  'server/db.ts': 'db',
-};
-
 export default function Dashboard({ repoUrl, apiData }) {
   console.log("🖥️ [Dashboard.jsx] Rendering with apiData:", apiData);
   console.log("📂 [Dashboard.jsx] Found files for sidebar:", apiData?.files_found);
@@ -49,10 +19,9 @@ export default function Dashboard({ repoUrl, apiData }) {
   }, []);
 
   const handleFileSelect = useCallback((fileId) => {
-    // If the file exists in our graph mapping, select that node.
-    // Otherwise, just select the path and show the AI panel (which will show mock data for now)
-    const nodeId = fileToNodeMap[fileId] || fileId;
-    setSelectedNode(nodeId);
+    // Since the graph is now dynamically built from paths,
+    // the fileId from the sidebar exactly matches the node ID in the graph.
+    setSelectedNode(fileId);
     setShowAIPanel(true);
   }, []);
 
@@ -94,6 +63,7 @@ export default function Dashboard({ repoUrl, apiData }) {
               <DependencyGraph
                 onNodeClick={handleNodeClick}
                 selectedNode={selectedNode}
+                files={apiData?.files_found || []} // <-- Dynamic data passed here!
               />
             </div>
 
