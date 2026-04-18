@@ -36,7 +36,10 @@ const fileToNodeMap = {
   'server/db.ts': 'db',
 };
 
-export default function Dashboard({ repoUrl }) {
+export default function Dashboard({ repoUrl, apiData }) {
+  console.log("🖥️ [Dashboard.jsx] Rendering with apiData:", apiData);
+  console.log("📂 [Dashboard.jsx] Found files for sidebar:", apiData?.files_found);
+
   const [selectedNode, setSelectedNode] = useState(null);
   const [showAIPanel, setShowAIPanel] = useState(false);
 
@@ -46,11 +49,11 @@ export default function Dashboard({ repoUrl }) {
   }, []);
 
   const handleFileSelect = useCallback((fileId) => {
-    const nodeId = fileToNodeMap[fileId] || null;
-    if (nodeId) {
-      setSelectedNode(nodeId);
-      setShowAIPanel(true);
-    }
+    // If the file exists in our graph mapping, select that node.
+    // Otherwise, just select the path and show the AI panel (which will show mock data for now)
+    const nodeId = fileToNodeMap[fileId] || fileId;
+    setSelectedNode(nodeId);
+    setShowAIPanel(true);
   }, []);
 
   const handleCloseAI = useCallback(() => {
@@ -75,7 +78,11 @@ export default function Dashboard({ repoUrl }) {
       <div className="flex-1 flex overflow-hidden p-3 gap-3" style={{ minHeight: 0 }}>
         {/* Left Sidebar — 20% */}
         <div className="w-1/5 min-w-[220px] max-w-[300px] flex-shrink-0">
-          <FileSidebar onSelectFile={handleFileSelect} selectedFile={selectedNode} />
+          <FileSidebar 
+            onSelectFile={handleFileSelect} 
+            selectedFile={selectedNode} 
+            files={apiData?.files_found || []}
+          />
         </div>
 
         {/* Center + Right */}

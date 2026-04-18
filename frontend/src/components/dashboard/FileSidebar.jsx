@@ -6,14 +6,6 @@ import {
 } from 'lucide-react';
 import { mockFileTree } from '../../data/mockData';
 
-const heatDotClass = {
-  red: 'heat-dot heat-dot-red',
-  yellow: 'heat-dot heat-dot-yellow',
-  grey: 'heat-dot heat-dot-grey',
-  hollow: 'heat-dot heat-dot-hollow',
-  blue: 'heat-dot heat-dot-blue',
-};
-
 const iconMap = {
   react: <Code2 className="w-4 h-4 text-accent-cyan" />,
   ts: <Braces className="w-4 h-4 text-blue-400" />,
@@ -23,15 +15,89 @@ const iconMap = {
   md: <FileText className="w-4 h-4 text-text-muted" />,
 };
 
+const getIconForFile = (filename) => {
+  const ext = filename.split('.').pop()?.toLowerCase();
+  if (['js', 'jsx', 'tsx'].includes(ext)) return 'react';
+  if (ext === 'ts') return 'ts';
+  if (ext === 'json') return 'json';
+  if (ext === 'css' || ext === 'scss') return 'css';
+  if (['md', 'txt'].includes(ext)) return 'md';
+  return 'default';
+};
+
+const buildFileTree = (paths) => {
+  if (!paths || !Array.isArray(paths)) {
+    console.warn("⚠️ [FileSidebar.jsx] buildFileTree received invalid paths:", paths);
+    return [];
+  }
+  const root = [];
+  
+  paths.forEach(path => {
+    const parts = path.split('/');
+    let currentLevel = root;
+    let currentId = '';
+
+    parts.forEach((part, index) => {
+      currentId = currentId ? `${currentId}/${part}` : part;
+      const isLast = index === parts.length - 1;
+      
+      let existingChild = currentLevel.find(item => item.name === part);
+
+      if (!existingChild) {
+        existingChild = {
+          id: currentId,
+          name: part,
+          type: isLast ? 'file' : 'folder',
+          ...(isLast ? { 
+            icon: getIconForFile(part),
+            heat: ['red', 'yellow', 'blue', 'grey'][Math.floor(Math.random() * 4)]
+          } : { children: [], expanded: true })
+        };
+        currentLevel.push(existingChild);
+      }
+      
+      if (!isLast) {
+        currentLevel = existingChild.children;
+      }
+    });
+  });
+
+  const sortItems = (items) => {
+    return items.sort((a, b) => {
+      if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    }).map(item => {
+      if (item.children) item.children = sortItems(item.children);
+      return item;
+    });
+  };
+
+  return sortItems(root);
+};
+
+const heatDotClass = {
+  red: 'heat-dot heat-dot-red',
+  yellow: 'heat-dot heat-dot-yellow',
+  grey: 'heat-dot heat-dot-grey',
+  hollow: 'heat-dot heat-dot-hollow',
+  blue: 'heat-dot heat-dot-blue',
+};
+
 function TreeItem({ item, depth = 0, onSelectFile, selectedFile, filter }) {
   const [expanded, setExpanded] = useState(item.expanded ?? false);
 
   // Filter logic
   const matchesFilter = !filter || item.name.toLowerCase().includes(filter.toLowerCase());
-  const childrenMatch = item.children?.some(child =>
-    child.name.toLowerCase().includes(filter.toLowerCase()) ||
-    child.children?.some(gc => gc.name.toLowerCase().includes(filter.toLowerCase()))
-  );
+  const hasMatchingChildren = (node) => {
+    if (node.children) {
+      return node.children.some(child => 
+        child.name.toLowerCase().includes(filter.toLowerCase()) || hasMatchingChildren(child)
+      );
+    }
+    return false;
+  };
+
+  const childrenMatch = hasMatchingChildren(item);
 
   if (filter && !matchesFilter && !childrenMatch) return null;
 
@@ -88,11 +154,10 @@ function TreeItem({ item, depth = 0, onSelectFile, selectedFile, filter }) {
   return (
     <motion.button
       onClick={() => onSelectFile(item.id)}
-      className={`w-full flex items-center gap-2 py-1.5 px-2 rounded-lg text-sm transition-all duration-200 group ${
-        isSelected
+      className={`w-full flex items-center gap-2 py-1.5 px-2 rounded-lg text-sm transition-all duration-200 group ${isSelected
           ? 'bg-accent-indigo/10'
           : 'hover:bg-neu-highlight/50'
-      }`}
+        }`}
       style={{
         paddingLeft: `${depth * 16 + 8}px`,
         boxShadow: isSelected ? 'inset 2px 2px 6px #141820, inset -2px -2px 6px #283048' : 'none',
@@ -110,8 +175,18 @@ function TreeItem({ item, depth = 0, onSelectFile, selectedFile, filter }) {
   );
 }
 
-export default function FileSidebar({ onSelectFile, selectedFile }) {
+export default function FileSidebar({ onSelectFile, selectedFile, files = [] }) {
+  console.log("🗂️ [FileSidebar.jsx] Rendering with files prop:", files);
   const [filter, setFilter] = useState('');
+
+  const fileTree = useMemo(() => {
+    if (files.length > 0) {
+      const tree = buildFileTree(files);
+      console.log("🌲 [FileSidebar.jsx] Built File Tree:", tree);
+      return tree;
+    }
+    return mockFileTree;
+  }, [files]);
 
   return (
     <div
@@ -155,7 +230,7 @@ export default function FileSidebar({ onSelectFile, selectedFile }) {
 
       {/* File Tree */}
       <div className="flex-1 overflow-y-auto px-2 pb-4">
-        {mockFileTree.map(item => (
+        {fileTree.map(item => (
           <TreeItem
             key={item.id}
             item={item}

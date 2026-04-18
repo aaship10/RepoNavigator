@@ -151,7 +151,7 @@ function AnalyzeInput({ onAnalyze }) {
           onChange={(e) => { setRepoUrl(e.target.value); setTouched(true); }}
           onKeyDown={(e) => e.key === 'Enter' && handleAnalyze()}
           placeholder="https://github.com/owner/repository"
-          className="neu-input pr-40 text-base md:text-lg"
+          className="neu-input pr-40 text-base md:text-lg w-full"
           style={{ fontFamily: "'JetBrains Mono', monospace", padding: '20px 24px', borderRadius: '16px' }}
         />
         <button
@@ -241,7 +241,7 @@ export default function LandingPage({ onAnalyze }) {
       {/* ── 1. Hero Text ── */}
       <HeroText />
 
-      {/* ── 2. URL Input ── */}
+      {/* ── 2. URL Input Section ── */}
       <section className="flex flex-col items-center px-6 py-12 md:py-16 my-6 w-full z-10 relative">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
