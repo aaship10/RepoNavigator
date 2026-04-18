@@ -4,6 +4,7 @@ import {
   GitBranch, Layers, Brain, Route, ArrowRight, AlertCircle,
   Sparkles,
 } from 'lucide-react';
+import InteractiveGrid from './InteractiveGrid';
 
 const GITHUB_REGEX = /^https?:\/\/(www\.)?github\.com\/[\w-]+\/[\w.-]+\/?$/;
 
@@ -96,7 +97,7 @@ function HeroText() {
 }
 
 function HeroSubtitle() {
-  const text = "Paste a GitHub URL — get an interactive dependency graph, AI-powered file summaries, and a guided onboarding path in seconds.";
+  const text = "Paste a GitHub URL - get an interactive dependency graph, AI-powered file summaries, and a guided onboarding path in seconds.";
   const words = text.split(" ");
   return (
     <p className="text-text-secondary text-sm md:text-base max-w-2xl leading-relaxed mt-2 flex flex-wrap justify-center mx-auto">
@@ -232,6 +233,7 @@ export default function LandingPage({ onAnalyze }) {
 
   return (
     <div className="relative pb-24 flex flex-col items-center holographic-grid overflow-hidden">
+      <InteractiveGrid />
       {/* ── Ambient Orbs ── */}
       <div className="absolute top-0 left-1/4 w-96 h-96 rounded-full opacity-[0.06] blur-[140px] pointer-events-none"
         style={{ background: 'radial-gradient(circle, #22D3EE, transparent)' }} />
@@ -256,7 +258,7 @@ export default function LandingPage({ onAnalyze }) {
             </span>
           </h2>
           <p className="text-text-secondary text-sm md:text-base lg:text-lg">
-            Paste any public GitHub URL and let DevClash map it for you.
+            Paste any public GitHub URL and let RepoNavigator map it for you.
           </p>
         </motion.div>
 
