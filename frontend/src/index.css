@@ -12,14 +12,28 @@
   box-sizing: border-box;
 }
 
-html, body, #root {
-  height: 100%;
+html {
+  /* No height: 100% here — that would clamp #root and prevent scroll expansion.
+     No overflow-x: hidden on html — browsers promote that into a new scroll
+     container, breaking window-level scroll events that Framer's useScroll relies on. */
+  background-color: #1E232E;
+}
+
+body {
+  /* overflow-x: hidden is safe on body (not html) — no new scroll context. */
   overflow-x: hidden;
   background-color: #1E232E;
   color: #E2E8F0;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  /* Must NOT have height: 100% — that clamps #root to viewport height,
+     so the 400vh scroll track inside has no room to expand and
+     the browser never produces scroll events. Let it grow with content. */
+  background-color: #1E232E;
 }
 
 /* Custom Scrollbar — Soft Midnight */
