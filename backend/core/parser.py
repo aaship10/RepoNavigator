@@ -28,11 +28,17 @@ JS_QUERY = Query(JS_LANG, """
         arguments: (arguments (string) @req))
 """)
 
-def extract_dependencies(file_data: Dict[str, str]) -> List[Tuple[str, str]]:
+def extract_dependencies(file_data: Dict[str, str], progress_callback=None) -> List[Tuple[str, str]]:
     dependencies = []
     file_paths = list(file_data.keys())
+    total_files = len(file_paths)
 
-    for source_path, content in file_data.items():
+    for idx, (source_path, content) in enumerate(file_data.items()):
+        if progress_callback:
+            # Scale progress: Parsing is roughly 60-90%
+            percent = 60 + int((idx / (total_files if total_files > 0 else 1)) * 30)
+            progress_callback(percent, f"Analyzing {source_path[:30]}...")
+
         ext = source_path.split('.')[-1].lower()
         found_modules = []
         

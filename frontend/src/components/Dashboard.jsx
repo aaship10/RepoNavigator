@@ -1,30 +1,50 @@
-import { useState, useCallback } from 'react';
-import { motion } from 'framer-motion';
+import { useState, useCallback, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import TopNav from './dashboard/TopNav';
 import FileSidebar from './dashboard/FileSidebar';
 import DependencyGraph from './dashboard/DependencyGraph';
 import AIPanel from './dashboard/AIPanel';
 import OnboardingStrip from './dashboard/OnboardingStrip';
 
-export default function Dashboard({ repoUrl, apiData }) {
-  console.log("🖥️ [Dashboard.jsx] Rendering with apiData:", apiData);
-  console.log("📂 [Dashboard.jsx] Found files for sidebar:", apiData?.file_tree);
+export default function Dashboard({ apiData }) {
+  const { repoId } = useParams();
+  const navigate = useNavigate();
+
+  // Redirect if data is missing (e.g. refresh)
+  useEffect(() => {
+    if (!apiData && !repoId) {
+      navigate('/');
+    }
+  }, [apiData, repoId, navigate]);
+
+  const repoUrlForNav = apiData?.repo_id || repoId || '';
 
   const [selectedNode, setSelectedNode] = useState(null);
   const [showAIPanel, setShowAIPanel] = useState(false);
+  const [currentFolder, setCurrentFolder] = useState('');
 
   const handleNodeClick = useCallback((nodeId) => {
-    console.log("👉 [Dashboard.jsx] Node clicked in graph:", nodeId);
     setSelectedNode(nodeId);
-    setShowAIPanel(true);
+    setShowAIPanel(!!nodeId);
+  }, []);
+
+  const handleMatrixClick = useCallback((cellData) => {
+    setShowAIPanel(!!cellData);
   }, []);
 
   const handleFileSelect = useCallback((fileId) => {
-    console.log("👉 [Dashboard.jsx] File selected in sidebar:", fileId);
-    // Since the graph is now dynamically built from paths,
-    // the fileId from the sidebar exactly matches the node ID in the graph.
     setSelectedNode(fileId);
     setShowAIPanel(true);
+  }, []);
+
+  const handleFolderSelect = useCallback((folderId) => {
+    // When clicking a folder in the sidebar, update the canvas context
+    setCurrentFolder(folderId || '');
+  }, []);
+
+  const handleNavigateFolder = useCallback((path) => {
+    setCurrentFolder(path || '');
   }, []);
 
   const handleCloseAI = useCallback(() => {
@@ -40,51 +60,68 @@ export default function Dashboard({ repoUrl, apiData }) {
       className="h-screen w-screen flex flex-col overflow-hidden"
       style={{ background: '#1E232E' }}
     >
-      {/* Top Nav — ~56px */}
-      <div className="h-14 flex-shrink-0">
-        <TopNav repoUrl={repoUrl} />
+      {/* Top Nav — fixed height bar */}
+      <div className="h-14 flex-shrink-0 w-full">
+        <TopNav repoUrl={repoUrlForNav} />
       </div>
 
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden p-3 gap-3" style={{ minHeight: 0 }}>
         {/* Left Sidebar — 20% */}
-        <div className="w-1/5 min-w-[220px] max-w-[300px] flex-shrink-0">
-          <FileSidebar 
-            onSelectFile={handleFileSelect} 
-            selectedFile={selectedNode} 
-            files={apiData?.file_tree || []}
-          />
+        <div className="w-1/5 min-w-[240px] max-w-[320px] flex-shrink-0 relative z-20">
+          <div className="w-full h-full rounded-2xl p-4 overflow-hidden"
+               style={{
+                 background: '#1E232E',
+                 boxShadow: 'inset 4px 4px 10px #141820, inset -4px -4px 10px #283048'
+               }}>
+            <FileSidebar 
+              onSelectFile={handleFileSelect}
+              onSelectFolder={handleFolderSelect}
+              selectedFile={selectedNode} 
+              files={apiData?.file_tree || []}
+            />
+          </div>
         </div>
 
         {/* Center + Right */}
-        <div className="flex-1 flex flex-col gap-3 min-w-0" style={{ minHeight: 0 }}>
-          {/* Center Graph + AI Panel */}
-          <div className="flex-1 flex gap-3 min-h-0">
+        <div className="flex-1 flex gap-4 min-w-0 h-full">
+          {/* Center Column: Graph + Bottom Strip */}
+          <div className="flex-1 flex flex-col gap-4 min-w-0 relative">
             {/* Dependency Graph — Fills remaining space */}
             <div className="flex-1 min-w-0">
               <DependencyGraph
                 onNodeClick={handleNodeClick}
-                selectedNode={selectedNode}
-                files={apiData?.file_tree || []} // <-- Dynamic data passed here!
+                onMatrixCellClick={handleMatrixClick}
+                apiData={apiData}
+                currentFolder={currentFolder}
+                onNavigateFolder={handleNavigateFolder}
               />
             </div>
 
-            {/* AI Panel — 25% when visible */}
+            {/* Bottom Onboarding Strip — 15% height */}
+            <div className="flex-shrink-0" style={{ height: '15%', minHeight: '120px' }}>
+              <OnboardingStrip onSelectFile={handleNodeClick} />
+            </div>
+          </div>
+
+          {/* AI Panel — 25% when visible. Framer Motion slide in */}
+          <AnimatePresence>
             {showAIPanel && (
-              <div className="w-1/4 min-w-[260px] max-w-[340px] flex-shrink-0">
+              <motion.div 
+                initial={{ x: '100%', opacity: 0, width: 0 }}
+                animate={{ x: 0, opacity: 1, width: '25%' }}
+                exit={{ x: '100%', opacity: 0, width: 0 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                className="min-w-[280px] max-w-[380px] flex-shrink-0 h-full overflow-hidden"
+              >
                 <AIPanel
                   selectedNode={selectedNode}
                   repoId={apiData?.repo_id}
                   onClose={handleCloseAI}
                 />
-              </div>
+              </motion.div>
             )}
-          </div>
-
-          {/* Bottom Onboarding Strip — 15% height */}
-          <div className="flex-shrink-0" style={{ height: '15%', minHeight: '120px' }}>
-            <OnboardingStrip onSelectFile={handleNodeClick} />
-          </div>
+          </AnimatePresence>
         </div>
       </div>
     </motion.div>
