@@ -35,8 +35,8 @@ export async function analyzeRepo(githubUrl, timeoutMs = 60000) {
     console.log("📥 [api.js] Raw JSON response received:", data);
     
     // Validate that we found files
-    if (!data.files_found || data.files_found.length === 0) {
-      console.warn("⚠️ [api.js] API succeeded but files_found is empty.");
+    if (!data.file_tree || data.file_tree.length === 0) {
+      console.warn("⚠️ [api.js] API succeeded but file_tree is empty.");
       throw new Error('Repository is empty or unreadable.');
     }
 
@@ -47,6 +47,43 @@ export async function analyzeRepo(githubUrl, timeoutMs = 60000) {
     if (err.name === 'AbortError') {
       throw new Error('Analysis timed out. The repository might be too large or the server is busy.');
     }
+    throw err;
+  }
+}
+
+/**
+ * Fetches detailed insights and graph data for a specific file.
+ * @param {string} repoId - The unique ID of the analyzed repository.
+ * @param {string} filePath - The path of the file to investigate.
+ * @returns {Promise<Object>} - The file details and AI insights.
+ */
+export async function fetchFileDetails(repoId, filePath) {
+  try {
+    const url = new URL(`${BASE_URL}/file-details/${repoId}`);
+    url.searchParams.append('file_path', filePath);
+
+    console.log("🌐 [api.js] Calling fetchFileDetails with URL:", url.toString());
+    
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    console.log("📥 [api.js] Response received:", {
+      status: response.status,
+      ok: response.ok,
+      statusText: response.statusText
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch file details: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log("📦 [api.js] Decoded JSON data:", data);
+    return data;
+  } catch (err) {
+    console.error("🔥 [api.js] Caught error in fetchFileDetails:", err);
     throw err;
   }
 }

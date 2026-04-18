@@ -1,6 +1,8 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, AlertTriangle, ArrowDownRight, ArrowUpRight, Zap, Brain, Shield } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, AlertTriangle, ArrowDownRight, ArrowUpRight, Zap, Brain, Shield, Loader2, RefreshCw } from 'lucide-react';
 import { mockAIData } from '../../data/mockData';
+import { fetchFileDetails } from '../../services/api';
 
 function RiskBar({ risk }) {
   const getColor = (r) => {
@@ -71,8 +73,102 @@ function DependencyList({ title, items, icon: Icon, color }) {
   );
 }
 
-export default function AIPanel({ selectedNode, onClose }) {
-  const data = mockAIData[selectedNode];
+function SafeRender({ content, label = "Item" }) {
+  if (!content) return <p className="opacity-40 italic">No details provided.</p>;
+
+  // 1. Primitive Strings
+  if (typeof content === 'string') {
+    return <p className="leading-relaxed">{content}</p>;
+  }
+
+  // 2. Arrays of Objects or Strings
+  if (Array.isArray(content)) {
+    return (
+      <ul className="space-y-3">
+        {content.map((item, i) => (
+          <li key={i} className="flex flex-col gap-1">
+            {typeof item === 'object' && item !== null ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <div className="w-1.5 h-1.5 rounded-full bg-accent-cyan/60 flex-shrink-0" />
+                  <span className="font-bold text-text-primary text-[13px]">
+                    {item.name || item.step || item.title || `${label} ${i + 1}`}
+                  </span>
+                </div>
+                <div className="pl-3.5 text-text-secondary border-l border-white/5 ml-0.5 mt-0.5">
+                  {item.purpose || item.description || item.detail || JSON.stringify(item)}
+                </div>
+              </>
+            ) : (
+              <div className="flex items-center gap-2">
+                <div className="w-1 h-1 rounded-full bg-text-muted/40 flex-shrink-0" />
+                <span>{String(item)}</span>
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  // 3. Fallback for unexpected objects (Complex JSON)
+  if (typeof content === 'object') {
+    return (
+      <pre className="text-[10px] font-mono bg-black/30 p-3 rounded-xl overflow-x-auto border border-white/5 text-accent-cyan/80">
+        <code>{JSON.stringify(content, null, 2)}</code>
+      </pre>
+    );
+  }
+
+  return <p>{String(content)}</p>;
+}
+
+export default function AIPanel({ selectedNode, repoId, onClose }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    console.log("🔍 [AIPanel.jsx] AIPanel useEffect triggered for node:", selectedNode, "with repoId:", repoId);
+    
+    async function fetchData() {
+      if (!selectedNode || !repoId) {
+        console.log("⏭️ [AIPanel.jsx] Skipping fetch: selectedNode or repoId missing.");
+        return;
+      }
+      
+      setLoading(true);
+      setError(null);
+      
+      try {
+        console.log("🚀 [AIPanel.jsx] Fetching AI details...");
+        const response = await fetchFileDetails(repoId, selectedNode);
+        console.log("✅ [AIPanel.jsx] AI Data received:", response);
+        
+        // Map backend response to panel structure
+        const mockFallback = mockAIData[selectedNode] || {
+          summary: "Analysis pending...",
+          risk: 20,
+          dependsOn: [],
+          usedBy: [],
+          keyFunctions: []
+        };
+
+        setData({
+          ...mockFallback,
+          summary: response.ai_insights || mockFallback.summary,
+        });
+      } catch (err) {
+        console.error("❌ [AIPanel.jsx] Failed to fetch AI insights:", err);
+        setError("AI analysis unavailable for this file.");
+        setData(mockAIData[selectedNode] || null);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchData();
+  }, [selectedNode, repoId]);
 
   return (
     <AnimatePresence mode="wait">
@@ -83,13 +179,39 @@ export default function AIPanel({ selectedNode, onClose }) {
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: 40 }}
           transition={{ duration: 0.3, ease: 'easeOut' }}
-          className="h-full flex flex-col overflow-hidden"
+          className="h-full flex flex-col overflow-hidden relative"
           style={{
             background: '#1A1F2B',
             boxShadow: 'inset 3px 3px 8px #141820, inset -3px -3px 8px #232939',
             borderRadius: '16px',
           }}
         >
+          {/* Loading Overlay */}
+          <AnimatePresence>
+            {loading && (
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 backdrop-blur-sm bg-[#1A1F2B]/60"
+              >
+                <div className="relative">
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                  >
+                    <Loader2 className="w-8 h-8 text-accent-cyan" />
+                  </motion.div>
+                  <motion.div 
+                    animate={{ opacity: [0, 1, 0] }}
+                    transition={{ duration: 1.5, repeat: Infinity }}
+                    className="absolute inset-0 blur-md bg-accent-cyan/20 rounded-full"
+                  />
+                </div>
+                <p className="text-xs font-mono text-accent-cyan/80 animate-pulse">Gemini analyzing...</p>
+              </motion.div>
+            )}
+          </AnimatePresence>
           {/* Header */}
           <div className="flex items-center justify-between px-5 pt-5 pb-3">
             <div className="flex items-center gap-2.5">
@@ -122,24 +244,62 @@ export default function AIPanel({ selectedNode, onClose }) {
 
           {/* Content */}
           <div className="flex-1 overflow-y-auto px-5 pb-5 space-y-5">
-            {/* Summary */}
+            {/* Structured AI Insights */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.15 }}
+              className="space-y-4"
             >
-              <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <Zap className="w-3.5 h-3.5 text-accent-cyan" />
-                Summary
-              </h4>
-              <p className="text-sm text-text-secondary leading-relaxed p-4 rounded-xl"
-                style={{
-                  background: '#1E232E',
-                  boxShadow: 'inset 2px 2px 5px #141820, inset -2px -2px 5px #232939',
-                }}
-              >
-                {data.summary}
-              </p>
+              {/* 1. The Summary */}
+              <div>
+                <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Zap className="w-3.5 h-3.5 text-accent-cyan" />
+                  Executive Summary
+                </h4>
+                <div
+                  className={`text-sm leading-relaxed p-4 rounded-xl transition-all duration-500 ${error ? 'text-heat-red border border-heat-red/20' : 'text-text-secondary'}`}
+                  style={{
+                    background: '#1E232E',
+                    boxShadow: 'inset 2px 2px 5px #141820, inset -2px -2px 5px #232939',
+                  }}
+                >
+                  {error ? (
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4" />
+                      <span>{error}</span>
+                    </div>
+                  ) : (
+                    <SafeRender content={typeof data.summary === 'object' ? data.summary.summary : data.summary} />
+                  )}
+                </div>
+              </div>
+
+              {/* 2. Key Logic & Functions */}
+              {typeof data.summary === 'object' && data.summary.functions && (
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+                  <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <Brain className="w-3.5 h-3.5 text-accent-magenta" />
+                    Logical Functions
+                  </h4>
+                  <div className="text-sm text-text-secondary leading-relaxed p-4 rounded-xl border border-white/5" style={{ background: 'rgba(232, 121, 249, 0.03)' }}>
+                    <SafeRender content={data.summary.functions} label="Function" />
+                  </div>
+                </motion.div>
+              )}
+
+              {/* 3. Data Flow */}
+              {typeof data.summary === 'object' && data.summary.data_flow && (
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+                  <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <ArrowDownRight className="w-3.5 h-3.5 text-accent-cyan" />
+                    Data Flow Analysis
+                  </h4>
+                  <div className="text-sm text-text-secondary leading-relaxed p-4 rounded-xl border border-white/5" style={{ background: 'rgba(34, 211, 238, 0.03)' }}>
+                    <SafeRender content={data.summary.data_flow} label="Step" />
+                  </div>
+                </motion.div>
+              )}
             </motion.div>
 
             {/* Risk Bar */}

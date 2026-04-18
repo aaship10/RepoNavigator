@@ -8,17 +8,19 @@ import OnboardingStrip from './dashboard/OnboardingStrip';
 
 export default function Dashboard({ repoUrl, apiData }) {
   console.log("🖥️ [Dashboard.jsx] Rendering with apiData:", apiData);
-  console.log("📂 [Dashboard.jsx] Found files for sidebar:", apiData?.files_found);
+  console.log("📂 [Dashboard.jsx] Found files for sidebar:", apiData?.file_tree);
 
   const [selectedNode, setSelectedNode] = useState(null);
   const [showAIPanel, setShowAIPanel] = useState(false);
 
   const handleNodeClick = useCallback((nodeId) => {
+    console.log("👉 [Dashboard.jsx] Node clicked in graph:", nodeId);
     setSelectedNode(nodeId);
     setShowAIPanel(true);
   }, []);
 
   const handleFileSelect = useCallback((fileId) => {
+    console.log("👉 [Dashboard.jsx] File selected in sidebar:", fileId);
     // Since the graph is now dynamically built from paths,
     // the fileId from the sidebar exactly matches the node ID in the graph.
     setSelectedNode(fileId);
@@ -50,7 +52,7 @@ export default function Dashboard({ repoUrl, apiData }) {
           <FileSidebar 
             onSelectFile={handleFileSelect} 
             selectedFile={selectedNode} 
-            files={apiData?.files_found || []}
+            files={apiData?.file_tree || []}
           />
         </div>
 
@@ -63,7 +65,7 @@ export default function Dashboard({ repoUrl, apiData }) {
               <DependencyGraph
                 onNodeClick={handleNodeClick}
                 selectedNode={selectedNode}
-                files={apiData?.files_found || []} // <-- Dynamic data passed here!
+                files={apiData?.file_tree || []} // <-- Dynamic data passed here!
               />
             </div>
 
@@ -72,6 +74,7 @@ export default function Dashboard({ repoUrl, apiData }) {
               <div className="w-1/4 min-w-[260px] max-w-[340px] flex-shrink-0">
                 <AIPanel
                   selectedNode={selectedNode}
+                  repoId={apiData?.repo_id}
                   onClose={handleCloseAI}
                 />
               </div>
