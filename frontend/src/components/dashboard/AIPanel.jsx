@@ -6,36 +6,38 @@ import { fetchFileDetails } from '../../services/api';
 
 function RiskBar({ risk }) {
   const getColor = (r) => {
-    if (r >= 80) return { bg: '#F87171', glow: 'rgba(248,113,113,0.3)' };
-    if (r >= 50) return { bg: '#FBBF24', glow: 'rgba(251,191,36,0.3)' };
-    return { bg: '#4ADE80', glow: 'rgba(74,222,128,0.3)' };
+    if (r >= 80) return { bg: '#F87171', glow: 'rgba(248,113,113,0.3)', label: 'Critical' };
+    if (r >= 50) return { bg: '#FBBF24', glow: 'rgba(251,191,36,0.3)', label: 'Moderate' };
+    return { bg: '#2DD4BF', glow: 'rgba(45,212,191,0.3)', label: 'Low' };
   };
-  const { bg, glow } = getColor(risk);
+  const { bg, glow, label } = getColor(risk);
 
   return (
-    <div className="mt-1">
-      <div className="flex items-center justify-between mb-1.5">
-        <span className="text-xs text-text-muted font-medium flex items-center gap-1.5">
-          <Shield className="w-3.5 h-3.5" />
-          Dependency Risk
+    <div className="mt-2">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest flex items-center gap-2">
+          <Shield className="w-3 h-3 text-gray-600" />
+          Structural Stability
         </span>
-        <span className="text-xs font-bold" style={{ color: bg }}>{risk}%</span>
+        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: bg + '15', color: bg }}>
+          {label}
+        </span>
       </div>
       <div
-        className="w-full h-2.5 rounded-full overflow-hidden"
+        className="w-full h-1.5 rounded-full overflow-hidden relative"
         style={{
-          background: '#1A1F2B',
-          boxShadow: 'inset 2px 2px 4px #141820, inset -2px -2px 4px #283048',
+          background: '#141820',
+          boxShadow: 'inset 1px 1px 3px rgba(0,0,0,0.5)',
         }}
       >
         <motion.div
           className="h-full rounded-full"
           initial={{ width: 0 }}
           animate={{ width: `${risk}%` }}
-          transition={{ duration: 1, ease: 'easeOut', delay: 0.3 }}
+          transition={{ duration: 1.2, ease: [0.34, 1.56, 0.64, 1] }}
           style={{
             background: bg,
-            boxShadow: `0 0 10px ${glow}`,
+            boxShadow: `0 0 12px ${glow}`,
           }}
         />
       </div>
@@ -257,22 +259,23 @@ export default function AIPanel({ selectedNode, repoId, onClose }) {
               transition={{ delay: 0.15 }}
               className="space-y-4"
             >
-              {/* 1. The Summary */}
+               {/* 1. The Summary */}
               <div>
-                <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <Zap className="w-3.5 h-3.5 text-accent-cyan" />
-                  Executive Summary
+                <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.2em] mb-3 flex items-center gap-2">
+                  <Zap className="w-3 h-3 text-cyan-400/70" />
+                  Synthesis
                 </h4>
                 <div
-                  className={`text-sm leading-relaxed p-4 rounded-xl transition-all duration-500 ${error ? 'text-heat-red border border-heat-red/20' : 'text-text-secondary'}`}
+                  className={`text-xs leading-relaxed p-4 rounded-2xl transition-all duration-500 ${error ? 'text-red-400 border border-red-400/20' : 'text-gray-300'}`}
                   style={{
-                    background: '#1E232E',
-                    boxShadow: 'inset 2px 2px 5px #141820, inset -2px -2px 5px #232939',
+                    background: '#1A1F2B',
+                    boxShadow: 'inset 4px 4px 8px #131722, inset -4px -4px 8px #232a3a',
+                    border: '1px solid rgba(255,255,255,0.03)',
                   }}
                 >
                   {error ? (
                     <div className="flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4" />
+                      <AlertTriangle className="w-3.5 h-3.5" />
                       <span>{error}</span>
                     </div>
                   ) : (
@@ -284,12 +287,13 @@ export default function AIPanel({ selectedNode, repoId, onClose }) {
               {/* 2. Key Logic & Functions */}
               {typeof data.summary === 'object' && data.summary.functions && (
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-                  <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Brain className="w-3.5 h-3.5 text-accent-magenta" />
-                    Logical Functions
+                  <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.2em] mb-3 flex items-center gap-2">
+                    <Brain className="w-3 h-3 text-purple-400/70" />
+                    Strategic Logic
                   </h4>
-                  <div className="text-sm text-text-secondary leading-relaxed p-4 rounded-xl border border-white/5" style={{ background: 'rgba(232, 121, 249, 0.03)' }}>
-                    <SafeRender content={data.summary.functions} label="Function" />
+                  <div className="text-[11px] text-gray-400 leading-relaxed p-4 rounded-2xl border border-white/5" 
+                       style={{ background: 'rgba(168, 85, 247, 0.03)', boxShadow: 'inset 2px 2px 5px rgba(0,0,0,0.2)' }}>
+                    <SafeRender content={data.summary.functions} label="Entry" />
                   </div>
                 </motion.div>
               )}

@@ -80,7 +80,7 @@ def extract_repo_path(url: str) -> str:
     parts = url.rstrip('/').split('/')
     return f"{parts[-2]}/{parts[-1]}"
 
-def fetch_repo_files(github_url: str) -> dict:
+def fetch_repo_files(github_url: str, progress_callback=None) -> dict:
     """
     Fetches all relevant files from a GitHub repository.
     Returns a dictionary: {"path/to/file.js": "file content string"}
@@ -97,8 +97,17 @@ def fetch_repo_files(github_url: str) -> dict:
     # We use a BFS (Breadth-First Search) queue to walk the directory tree
     contents = repo.get_contents("")
     
+    total_estimated = len(contents) # Rough start
+    processed = 0
+
     while contents:
         file_obj = contents.pop(0)
+        processed += 1
+        
+        if progress_callback:
+            # Scale progress: Cloning/Fetching is roughly 0-60%
+            percent = min(60, int((processed / (processed + len(contents) + 1)) * 60))
+            progress_callback(percent, f"Fetching {file_obj.path[:30]}...")
         
         if file_obj.type == "dir":
             # FAST FAIL: Prevent wasting GitHub API calls on massive junk directories

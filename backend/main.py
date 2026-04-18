@@ -67,44 +67,80 @@ SESSION_GRAPHS = {}
 SESSION_FILES = {}
 
 
-@app.post("/analyze", response_model=AnalyzeResponse)
-async def analyze_repo(request: AnalyzeRequest):
-    try:
-        print(f"🚀 [main.py] Incoming analysis request for URL: {request.github_url}")
-        
-        # 1. Fetch raw code
-        files = fetch_repo_files(request.github_url)
-        
-        file_keys = list(files.keys())
-        print(f"✅ [main.py] Successfully fetched {len(file_keys)} files.")
-        print(f"📄 [main.py] Sample files (first 3): {file_keys[:3]}")
+import asyncio
+import json
+from fastapi.responses import StreamingResponse
 
-        # 2. Extract dependencies
-        dependencies = extract_dependencies(files)
-        
-        # 3. Build Graph
-        # G = build_global_graph(dependencies)
-        # Pass the list of all file paths into the graph builder
-        G = build_global_graph(dependencies, list(files.keys()))
-        
-        # 4. Save to memory for the next API calls
-        repo_key = request.github_url.rstrip('/').split('/')[-1]
-        SESSION_GRAPHS[repo_key] = G
-        SESSION_FILES[repo_key] = files
-        
-        # 5. Get Entry Points
-        entry_points = identify_entry_points(G)
-        
-        return {
-            "status": "success",
-            "repo_id": repo_key,
-            "total_files": len(files),
-            "entry_points": entry_points,
-            "file_tree": file_keys,
-            "edges": [[src, tgt] for src, tgt in dependencies]
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+@app.post("/analyze")
+async def analyze_repo(request: AnalyzeRequest):
+    async def generate():
+        try:
+            yield f"data: {json.dumps({'type': 'progress', 'value': 5, 'message': 'Initializing...'})}\n\n"
+            await asyncio.sleep(0.1) # Small breathe for SSE
+            
+            # Progress callback for core functions
+            def progress(val, msg):
+                # We can't really yield from inside the deep functions easily with sync calls, 
+                # so we'll just gather and yield here if we made them generators, 
+                # OR we just pass a wrapper.
+                pass
+
+            # 1. Fetch raw code
+            # Since fetch_repo_files is sync, we'll run it in a way that allows us to see progress 
+            # if we had made it a generator. For now, let's just do it in stages.
+            
+            yield f"data: {json.dumps({'type': 'progress', 'value': 10, 'message': 'Connecting to GitHub...'})}\n\n"
+            
+            # For a hackathon, we can provide a slightly more granular simulation of stages 
+            # while the sync function runs, OR refactor to generators.
+            # I refactored the functions to take callbacks. Let's use them.
+            
+            def send_progress(val, msg):
+                # This is tricky because fetch_repo_files is sync. 
+                # In a real app we'd use async, but here we'll just yield after it's done or use a thread.
+                # To keep it simple, I'll just yield at major milestones.
+                pass
+
+            files = fetch_repo_files(request.github_url, progress_callback=lambda v, m: None) 
+            # Wait, I want to SEE progress. I'll yield between stages.
+            
+            yield f"data: {json.dumps({'type': 'progress', 'value': 40, 'message': f'Downloaded {len(files)} files...'})}\n\n"
+            await asyncio.sleep(0.1)
+
+            # 2. Extract dependencies
+            yield f"data: {json.dumps({'type': 'progress', 'value': 60, 'message': 'Parsing Abstract Syntax Trees...'})}\n\n"
+            dependencies = extract_dependencies(files)
+            
+            yield f"data: {json.dumps({'type': 'progress', 'value': 85, 'message': 'Building dependency graph...'})}\n\n"
+
+            # 3. Build Graph
+            G = build_global_graph(dependencies, list(files.keys()))
+            
+            # 4. Save to memory
+            repo_key = request.github_url.rstrip('/').split('/')[-1]
+            SESSION_GRAPHS[repo_key] = G
+            SESSION_FILES[repo_key] = files
+            
+            # 5. Get Entry Points
+            entry_points = identify_entry_points(G)
+            
+            final_data = {
+                "status": "success",
+                "repo_id": repo_key,
+                "total_files": len(files),
+                "entry_points": entry_points,
+                "file_tree": list(files.keys()),
+                "edges": [[src, tgt] for src, tgt in dependencies]
+            }
+            
+            yield f"data: {json.dumps({'type': 'data', 'payload': final_data})}\n\n"
+            yield f"data: {json.dumps({'type': 'progress', 'value': 100, 'message': 'Analysis Complete'})}\n\n"
+
+        except Exception as e:
+            print(f"❌ [main.py] Analysis failed: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 @app.get("/file-details/{repo_id}", response_model=FileDetailsResponse)

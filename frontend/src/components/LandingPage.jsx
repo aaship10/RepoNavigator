@@ -4,6 +4,7 @@ import {
   GitBranch, Layers, Brain, Route, ArrowRight, AlertCircle,
   Sparkles,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import InteractiveGrid from './InteractiveGrid';
 
 const GITHUB_REGEX = /^https?:\/\/(www\.)?github\.com\/[\w-]+\/[\w.-]+\/?$/;
@@ -116,10 +117,12 @@ function HeroSubtitle() {
   );
 }
 
+
 /* ─────────────────────────────────────────────────────────────────────
    GITHUB URL INPUT 
 ───────────────────────────────────────────────────────────────────── */
-function AnalyzeInput({ onAnalyze }) {
+function AnalyzeInput() {
+  const navigate = useNavigate();
   const [repoUrl, setRepoUrl]     = useState('');
   const [isValid, setIsValid]     = useState(false);
   const [showError, setShowError] = useState(false);
@@ -134,7 +137,8 @@ function AnalyzeInput({ onAnalyze }) {
 
   const handleAnalyze = () => {
     if (isValid) {
-      onAnalyze(repoUrl);
+      // Navigate to analysis route with URL as search param
+      navigate(`/analyze?url=${encodeURIComponent(repoUrl.trim())}`);
     } else {
       setTouched(true);
       setShowError(true);
@@ -207,7 +211,7 @@ function AnalyzeInput({ onAnalyze }) {
 /* ─────────────────────────────────────────────────────────────────────
    LANDING PAGE — main export
 ───────────────────────────────────────────────────────────────────── */
-export default function LandingPage({ onAnalyze }) {
+export default function LandingPage() {
   const features = [
     {
       icon: Layers,
@@ -266,9 +270,9 @@ export default function LandingPage({ onAnalyze }) {
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 1.5, duration: 0.6, ease: 'easeOut' }}
-          className="w-full flex justify-center"
+          className="w-full flex flex-col items-center justify-center"
         >
-          <AnalyzeInput onAnalyze={onAnalyze} />
+          <AnalyzeInput />
         </motion.div>
       </section>
 

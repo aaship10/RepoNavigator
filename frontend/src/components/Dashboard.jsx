@@ -1,4 +1,5 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import TopNav from './dashboard/TopNav';
 import FileSidebar from './dashboard/FileSidebar';
@@ -6,7 +7,19 @@ import DependencyGraph from './dashboard/DependencyGraph';
 import AIPanel from './dashboard/AIPanel';
 import OnboardingStrip from './dashboard/OnboardingStrip';
 
-export default function Dashboard({ repoUrl, apiData }) {
+export default function Dashboard({ apiData }) {
+  const { repoId } = useParams();
+  const navigate = useNavigate();
+
+  // Redirect if data is missing (e.g. refresh)
+  useEffect(() => {
+    if (!apiData && !repoId) {
+      navigate('/');
+    }
+  }, [apiData, repoId, navigate]);
+
+  const repoUrlForNav = apiData?.repo_id || repoId || '';
+
   const [selectedNode, setSelectedNode] = useState(null);
   const [showAIPanel, setShowAIPanel] = useState(false);
   const [currentFolder, setCurrentFolder] = useState('');
@@ -49,7 +62,7 @@ export default function Dashboard({ repoUrl, apiData }) {
     >
       {/* Top Nav — fixed height bar */}
       <div className="h-14 flex-shrink-0 w-full">
-        <TopNav repoUrl={repoUrl} />
+        <TopNav repoUrl={repoUrlForNav} />
       </div>
 
       {/* Main Content Area */}
