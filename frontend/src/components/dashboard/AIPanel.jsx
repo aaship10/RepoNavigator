@@ -157,6 +157,7 @@ export default function AIPanel({ selectedNode, repoId, onClose }) {
         setData({
           ...mockFallback,
           summary: response.ai_insights || mockFallback.summary,
+          graph: response.graph || { edges: [] }
         });
       } catch (err) {
         console.error("❌ [AIPanel.jsx] Failed to fetch AI insights:", err);
@@ -169,6 +170,11 @@ export default function AIPanel({ selectedNode, repoId, onClose }) {
 
     fetchData();
   }, [selectedNode, repoId]);
+
+  // Calculate real dependencies based on graph data
+  const edges = data?.graph?.edges || [];
+  const realDependsOn = edges.filter(e => e.source === selectedNode).map(e => e.target);
+  const realImportedBy = edges.filter(e => e.target === selectedNode).map(e => e.source);
 
   return (
     <AnimatePresence mode="wait">
@@ -311,31 +317,32 @@ export default function AIPanel({ selectedNode, repoId, onClose }) {
               <RiskBar risk={data.risk} />
             </motion.div>
 
-            {/* Dependencies */}
+            {/* Dependency Mapping Section */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.35 }}
+              className="space-y-4 pt-4 border-t border-white/5"
             >
-              <DependencyList
-                title="Depends On"
-                items={data.dependsOn}
-                icon={ArrowDownRight}
-                color="#F87171"
-              />
-            </motion.div>
+              <h3 className="text-[11px] font-bold text-text-muted uppercase tracking-[0.2em] mb-4">
+                Repository Connections
+              </h3>
 
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.45 }}
-            >
-              <DependencyList
-                title="Used By"
-                items={data.usedBy}
-                icon={ArrowUpRight}
-                color="#4ADE80"
-              />
+              <div className="grid grid-cols-1 gap-4">
+                <DependencyList
+                  title="Depends On (Imports)"
+                  items={realDependsOn}
+                  icon={ArrowDownRight}
+                  color="#F87171"
+                />
+
+                <DependencyList
+                  title="Used By (Imported By)"
+                  items={realImportedBy}
+                  icon={ArrowUpRight}
+                  color="#4ADE80"
+                />
+              </div>
             </motion.div>
 
             {/* Key Functions */}
@@ -370,7 +377,7 @@ export default function AIPanel({ selectedNode, repoId, onClose }) {
             </motion.div>
 
             {/* Dead code warning */}
-            {data.risk === 0 && (
+            {realImportedBy.length === 0 && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
