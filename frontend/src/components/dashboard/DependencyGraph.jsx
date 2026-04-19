@@ -10,7 +10,8 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, GitBranch, Unlink, Grid3X3, Network, ChevronRight } from 'lucide-react';
+import { ArrowLeft, GitBranch, Unlink, Grid3X3, Network, ChevronRight, History } from 'lucide-react';
+import { TimelineSlider, ArchitectDiary, DiffOverlay } from './TimeMachineOverlays';
 
 // ─── Colour palette ────────────────────────────────────────────────────────────
 const PALETTE = [
@@ -18,7 +19,8 @@ const PALETTE = [
   '#FBBF24', '#FB923C', '#4ADE80', '#E879F9',
 ];
 function folderColor(name, allFolders) {
-  return PALETTE[allFolders.indexOf(name) % PALETTE.length];
+  const idx = allFolders.indexOf(name);
+  return PALETTE[Math.max(0, idx) % PALETTE.length];
 }
 
 // ─── Mock data (used when no real apiData yet) ─────────────────────────────────
@@ -35,6 +37,40 @@ const MOCK_EDGES = [
   ['auth/oauth.js',   'db/sessions.js'],
 ];
 const MOCK_FILE_TREE = [...new Set(MOCK_EDGES.flatMap(([s,t])=>[s,t]))];
+
+// ─── Timeline Mock Data ────────────────────────────────────────────────────────
+const MOCK_TIMELINE_STEPS = [
+  {
+    label: "v1.0 Baseline",
+    narrative: "Initial repository setup. The core architecture was monolithic and tightly coupled.",
+    delta: { addedNodes: [], removedNodes: [], addedEdges: [], removedEdges: [] },
+    diffSummary: { added: 0, removed: 0 },
+    baseNodes: [...MOCK_FILE_TREE].filter(f => !['auth/jwt.js', 'auth/oauth.js', 'core/db.js', 'core/logger.js'].includes(f)),
+    baseEdges: MOCK_EDGES.filter(e => !e.includes('auth/jwt.js') && !e.includes('auth/oauth.js') && !e.includes('core/db.js') && !e.includes('core/logger.js'))
+  },
+  {
+    label: "v1.2 Modularity",
+    narrative: "Extracted authentication and validation logic into dedicated modules. A great step forward for separation of concerns.",
+    delta: { 
+      addedNodes: ['auth/jwt.js', 'auth/oauth.js'], 
+      removedNodes: [], 
+      addedEdges: [['api/auth.js', 'auth/jwt.js'], ['auth/jwt.js', 'core/config.js'], ['auth/oauth.js', 'db/sessions.js']], 
+      removedEdges: [] 
+    },
+    diffSummary: { added: 2, removed: 0 }
+  },
+  {
+    label: "v2.0 Refactor",
+    narrative: "Massive refactor to remove the monolithic utility class. The system is now significantly more maintainable.",
+    delta: { 
+      addedNodes: ['core/db.js', 'core/logger.js'], 
+      removedNodes: ['core/utils.js'], 
+      addedEdges: [['api/routes.js', 'core/logger.js'], ['core/db.js', 'db/conn.js'], ['ui/Profile.jsx', 'core/logger.js']], 
+      removedEdges: [['api/routes.js', 'core/utils.js'], ['ui/Profile.jsx', 'core/utils.js'], ['core/utils.js', 'db/conn.js']] 
+    },
+    diffSummary: { added: 2, removed: 1 }
+  }
+];
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 function topFolder(filePath) {
@@ -208,17 +244,28 @@ function DecoupledToast({ visible }) {
   );
 }
 
-// ─── Custom RF Node (Rich neumorphic style) ─────────────────────────────────────
 function GraphNode({ data, selected }) {
-  const c = data.accent || '#94A3B8';
+  const c = data.isNew ? '#4ade80' : data.isRemoved ? '#f87171' : (data.accent || '#94A3B8');
   const heatColor = data.heat === 'red' ? '#F87171'
     : data.heat === 'yellow' ? '#FBBF24' : '#60A5FA';
+
+  const isSpecial = data.isNew || data.isRemoved;
+  const shadowValue = isSpecial 
+    ? `0 0 28px ${c}66, inset 2px 2px 5px rgba(255,255,255,0.1), inset -2px -2px 5px rgba(0,0,0,0.5)`
+    : selected
+      ? `0 0 28px ${c}44, inset 2px 2px 5px #283048, inset -2px -2px 5px #141820`
+      : '5px 5px 12px #141820, -5px -5px 12px #2a3240';
+
+  const borderValue = isSpecial ? `1px solid ${c}` : selected ? `1px solid ${c}88` : '1px solid rgba(255,255,255,0.05)';
 
   return (
     <motion.div
       className="relative cursor-pointer group"
+      initial={{ opacity: 0, scale: 0.8 }}
+      animate={{ opacity: data.isRemoved ? 0 : 1, scale: data.isRemoved ? 0.8 : 1 }}
+      exit={{ opacity: 0, scale: 0.8 }}
       whileHover={{ scale: 1.05 }}
-      transition={{ duration: 0.2 }}
+      transition={{ duration: 0.3 }}
     >
       <Handle type="target" position={Position.Top}
         style={{ background: c, border: 'none', top: -4, width: 8, height: 8 }} />
@@ -229,11 +276,9 @@ function GraphNode({ data, selected }) {
         className="w-[220px] px-4 py-3 rounded-xl relative overflow-hidden"
         style={{
           background: '#1E232E',
-          boxShadow: selected
-            ? `0 0 28px ${c}44, inset 2px 2px 5px #283048, inset -2px -2px 5px #141820`
-            : '5px 5px 12px #141820, -5px -5px 12px #2a3240',
-          border: selected ? `1px solid ${c}88` : '1px solid rgba(255,255,255,0.05)',
-          transition: 'box-shadow 0.3s ease, border 0.3s ease',
+          boxShadow: shadowValue,
+          border: borderValue,
+          transition: 'box-shadow 0.6s ease-out, border 0.6s ease-out',
         }}
       >
         <div
@@ -324,6 +369,7 @@ function ViewToggle({ view, setView, isLeafFolder }) {
   const options = [
     { key: 'matrix', label: 'Matrix', Icon: Grid3X3, disabled: isLeafFolder },
     { key: 'graph',  label: 'Graph',  Icon: Network, disabled: false },
+    { key: 'timeline', label: 'Time', Icon: History, disabled: false }
   ];
 
   return (
@@ -345,7 +391,7 @@ function ViewToggle({ view, setView, isLeafFolder }) {
             boxShadow: '4px 4px 10px #131722, -4px -4px 10px #2a3248',
             border: '1px solid rgba(255,255,255,0.06)',
           }}
-          animate={{ x: view === 'matrix' ? 0 : 88 }}
+          animate={{ x: view === 'matrix' ? 0 : view === 'graph' ? 88 : 176 }}
           transition={{ type: 'spring', damping: 28, stiffness: 380 }}
         />
         {options.map(({ key, label, Icon, disabled }) => (
@@ -572,6 +618,110 @@ function FileGraph({ graphData, onNodeClick }) {
   );
 }
 
+// ─── Time Machine Canvas ───────────────────────────────────────────────────────
+function TimeMachineGraph({ onNodeClick }) {
+  const [timelineIndex, setTimelineIndex] = useState(0);
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+
+  useEffect(() => {
+     handleScrub(0);
+  }, []);
+
+  const handleScrub = (newIndex) => {
+    let currentFiles = new Set(MOCK_TIMELINE_STEPS[0].baseNodes);
+    let currentEdgesList = [...MOCK_TIMELINE_STEPS[0].baseEdges];
+
+    for (let i = 1; i <= newIndex; i++) {
+        const d = MOCK_TIMELINE_STEPS[i].delta;
+        d.addedNodes.forEach(n => currentFiles.add(n));
+        d.removedNodes.forEach(n => currentFiles.delete(n));
+        currentEdgesList.push(...d.addedEdges);
+        currentEdgesList = currentEdgesList.filter(e => {
+            return !d.removedEdges.some(re => re[0] === e[0] && re[1] === e[1]);
+        });
+    }
+
+    const targetDelta = newIndex > 0 ? MOCK_TIMELINE_STEPS[newIndex].delta : { addedNodes: [], removedNodes: [], addedEdges: [], removedEdges: [] };
+    const currentFolders = [...new Set([...currentFiles].map(topFolder))];
+
+    const rawNodes = [...currentFiles].map(f => {
+       const isNew = targetDelta.addedNodes.includes(f);
+       return {
+          id: f, type: 'custom',
+          data: {
+             label: f.split('/').pop(),
+             folder: topFolder(f),
+             accent: folderColor(topFolder(f), currentFolders), 
+             heat: computeHeat(f, currentEdgesList),
+             description: relPath(f, ''),
+             isNew
+          }
+       };
+    });
+    
+    targetDelta.removedNodes.forEach(f => {
+        rawNodes.push({
+          id: f, type: 'custom',
+          data: {
+             label: f.split('/').pop(),
+             folder: topFolder(f),
+             accent: folderColor(topFolder(f), currentFolders), 
+             heat: computeHeat(f, currentEdgesList),
+             description: relPath(f, ''),
+             isRemoved: true
+          }
+        });
+    });
+
+    const newNodes = layoutDAG(rawNodes, currentEdgesList.map(([s, t]) => ({ source: s, target: t })));
+    
+    const formattedEdges = currentEdgesList.map(([s, t]) => {
+       const isNew = targetDelta.addedEdges.some(e => e[0] === s && e[1] === t);
+       return {
+          id: `e-${s}-${t}`, source: s, target: t, animated: isNew,
+          style: { 
+             stroke: isNew ? '#4ade80' : 'rgba(255,255,255,0.15)', 
+             strokeWidth: isNew ? 2 : 1.5,
+             transition: 'stroke 0.5s ease',
+          }
+       };
+    });
+
+    setNodes(newNodes);
+    setEdges(formattedEdges);
+    setTimelineIndex(newIndex);
+
+    setTimeout(() => {
+        setNodes(nds => nds.filter(n => !n.data.isRemoved).map(n => ({ ...n, data: { ...n.data, isNew: false } })));
+        setEdges(eds => eds.map(e => ({ ...e, animated: false, style: { stroke: 'rgba(255,255,255,0.15)', strokeWidth: 1.5 } })));
+    }, 2000);
+  };
+
+  const currentStep = MOCK_TIMELINE_STEPS[timelineIndex];
+
+  return (
+    <div className="w-full h-full relative">
+       <ReactFlow
+          nodes={nodes} edges={edges}
+          onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
+          onNodeClick={(_, node) => onNodeClick && onNodeClick(node.id)}
+          nodeTypes={nodeTypes}
+          fitView fitViewOptions={{ padding: 0.35, duration: 800 }}
+          minZoom={0.2} maxZoom={2}
+          proOptions={{ hideAttribution: true }}
+        >
+          <Background variant="dots" gap={32} size={1} color="rgba(255,255,255,0.04)" />
+          <Controls showInteractive={false} position="bottom-left" style={{ marginBottom: 120, marginLeft: 20 }} />
+        </ReactFlow>
+
+        <TimelineSlider steps={MOCK_TIMELINE_STEPS} currentIndex={timelineIndex} onChange={handleScrub} />
+        <ArchitectDiary narrative={currentStep?.narrative || ''} />
+        <DiffOverlay diffSummary={currentStep?.diffSummary || null} />
+    </div>
+  );
+}
+
 // ─── Root Export ──────────────────────────────────────────────────────────────
 export default function DependencyGraph({ onNodeClick, onMatrixCellClick, apiData, currentFolder, onNavigateFolder }) {
   const fileTree = apiData?.file_tree?.length ? apiData.file_tree : MOCK_FILE_TREE;
@@ -582,13 +732,16 @@ export default function DependencyGraph({ onNodeClick, onMatrixCellClick, apiDat
   const subFolders = useMemo(() => getSubFolders(folderPrefix, fileTree), [folderPrefix, fileTree]);
   const isLeafFolder = subFolders.length === 0;
 
-  // View state: auto-lock to graph if leaf
+  // View state: auto-lock to graph if leaf (but allow timeline)
   const [viewPref, setViewPref] = useState('matrix');
-  const view = isLeafFolder ? 'graph' : viewPref;
+  const view = (isLeafFolder && viewPref === 'matrix') ? 'graph' : viewPref;
 
-  // When currentFolder changes, reset to matrix if available
+  // When currentFolder changes, reset to matrix if available, but preserve time machine if active.
   useEffect(() => {
-    setViewPref(isLeafFolder ? 'graph' : 'matrix');
+    setViewPref((prev) => {
+      if (prev === 'timeline') return 'timeline';
+      return isLeafFolder ? 'graph' : 'matrix';
+    });
     setCrossCellCtx(null);
   }, [currentFolder, isLeafFolder]);
 
@@ -677,6 +830,19 @@ export default function DependencyGraph({ onNodeClick, onMatrixCellClick, apiDat
                 onCellClick={handleCellClick}
                 onAxisClick={handleAxisClick}
               />
+            </motion.div>
+          ) : view === 'timeline' ? (
+            <motion.div
+              key="timeline-view"
+              initial={{ scale: 1.05, opacity: 0 }}
+              animate={{ scale: 1,    opacity: 1 }}
+              exit   ={{ scale: 1.05, opacity: 0 }}
+              transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+              className="w-full h-full absolute inset-0"
+            >
+              <ReactFlowProvider>
+                <TimeMachineGraph onNodeClick={onNodeClick} />
+              </ReactFlowProvider>
             </motion.div>
           ) : (
             <motion.div
