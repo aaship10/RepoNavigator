@@ -277,11 +277,12 @@ async def get_file_details(
             # Extract the massive JSON we saved during ingestion
             saved_json = json.loads(result['metadatas'][0]["full_architectural_profile"])
             
-            # Format it to match what your React frontend is expecting
             ai_insights = {
                 "summary": saved_json.get("architectural_role", "Role not defined."),
                 "functions": saved_json.get("exposed_interface", {}).get("exported_functions", []),
-                "data_flow": saved_json.get("data_flow", {}).get("transformations", "No data flow tracked.")
+                "functions_used": saved_json.get("dependencies", {}).get("functions_used", []),
+                "data_flow": saved_json.get("data_flow", {}).get("transformations", "No data flow tracked."),
+                "external_apis": saved_json.get("dependencies", {}).get("external_apis", [])
             }
 
             # Merge AI purposes into final_functions
@@ -307,6 +308,8 @@ async def get_file_details(
         ai_insights = {
             "summary": "Summary not available. Has the repo finished analyzing?",
             "functions": [],
+            "functions_used": [],
+            "external_apis": [],
             "data_flow": ""
         }
 

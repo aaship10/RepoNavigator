@@ -19,7 +19,7 @@ generation_config = {
 
 # Using 1.5 Flash for massive context and speed
 model = genai.GenerativeModel(
-    model_name="gemini-2.5-flash-lite", 
+    model_name="gemini-2.5-flash", 
     generation_config=generation_config
 )
 
@@ -136,6 +136,18 @@ async def generate_rag_summary(file_path: str, file_content: str) -> dict:
           {{
             "package": "package-name",
             "why": "What specific feature of this package is used here?"
+          }}
+        ],
+        "external_apis": [
+          {{
+            "name": "API Name",
+            "purpose": "Why it is called (Detect any third-party or external APIs called by the code e.g., Stripe, AWS, external HTTP requests). If none, leave empty."
+          }}
+        ],
+        "functions_used": [
+          {{
+            "name": "Function Name",
+            "purpose": "What this function does and why it is called"
           }}
         ]
       }},

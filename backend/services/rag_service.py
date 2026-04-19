@@ -50,6 +50,8 @@ CORE OPERATING RULES:
 3. HONEST INCOMPLETENESS: If the chunks lack the answer, respond with "INSUFFICIENT_CONTEXT" in the confidence_level.
 4. FILE ATTRIBUTION: Cite specific file paths (e.g., "As seen in backend/auth.py...").
 5. STRUCTURAL FAITHFULNESS: Do not infer missing logic from stripped function bodies.
+6. API DETECTION: Detect any third-party or external APIs called by the code (e.g., Stripe, AWS, external HTTP requests). If none, return an empty array.
+7. EXTERNAL INVOCATIONS: Identify the key functions that this file INVOKES or USES from other files or libraries. Do not include functions defined within the file itself here.
 
 MANDATORY JSON OUTPUT SCHEMA:
 {
@@ -64,6 +66,18 @@ MANDATORY JSON OUTPUT SCHEMA:
         "explanation": "Detailed explanation",
         "source_file": "path/to/file",
         "evidence": "Function or class name"
+      }
+    ],
+    "external_apis": [
+      {
+        "name": "API Name",
+        "purpose": "Why it is called"
+      }
+    ],
+    "functions_used": [
+      {
+        "name": "Function Name",
+        "purpose": "What this function does and why it is called"
       }
     ],
     "cross_file_flow": "How logic flows across files (or null)",

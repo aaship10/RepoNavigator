@@ -48,9 +48,15 @@ class AIFunctionDetail(BaseModel):
     name: str
     purpose: str
 
+class ExternalAPI(BaseModel):
+    name: str
+    purpose: str
+
 class AIInsights(BaseModel):
     summary: str
     functions: List[AIFunctionDetail]
+    functions_used: List[AIFunctionDetail] = []
+    external_apis: List[ExternalAPI] = []
     data_flow: str
 
 # ==========================================
