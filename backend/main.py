@@ -1,9 +1,14 @@
+import asyncio
+import json
+import warnings
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Query as QueryParam
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import networkx as nx
 from pydantic import BaseModel
-import asyncio
+
+# Suppress the deprecation warning for the demo
+warnings.filterwarnings("ignore", category=FutureWarning)
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from fastapi import Depends
@@ -22,9 +27,14 @@ from core.graph_engine import (
 )
 
 # AI & Database Services
-from services.ai_service import generate_file_insights, generate_rag_summary 
-from services.rag_service import answer_global_query, stream_global_query
-from database.chroma_store import store_file_insight
+from services.ai_service import generate_rag_summary 
+from services.rag_service import answer_global_query, stream_global_query, client as groq_client
+from services.evolution_service import calculate_graph_delta, generate_evolution_narrative
+from database.chroma_store import (
+    store_file_insight, 
+    chroma_client, 
+    get_repo_collection_name
+)
 
 # Auth & Database
 from db import Base, engine, get_db
@@ -192,7 +202,7 @@ async def analyze_repo(
         # 5. Get Entry Points
         entry_points = identify_entry_points(G)
         
-        # 6. KICK OFF CHROMADB INGESTION IN THE BACKGROUND!
+        # 6. KICK OFF CHROMADB INGESTION (NO DELETION)
         background_tasks.add_task(process_and_store_summaries, repo_key, files)
         
         # 7. RECORD HISTORY (If Logged In)
@@ -230,53 +240,22 @@ async def analyze_repo(
 
 
 @app.get("/file-details/{repo_id}", response_model=FileDetailsResponse)
-async def get_file_details(
-    repo_id: str,
-    file_path: str = QueryParam(..., description="Relative path of the file in the repo"),
-):
-    G, files = _get_session(repo_id)
-
-    raw_code = files.get(file_path)
-    if raw_code is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"File '{file_path}' not found in session '{repo_id}'."
-        )
-
-    # 1. Ego subgraph (graph_engine — already working perfectly)
+async def get_file_details(repo_id: str, file_path: str):
+    """Optimized: Fetches insights directly from ChromaDB for zero-latency sidebar"""
+    
+    if repo_id not in SESSION_GRAPHS:
+        raise HTTPException(status_code=404, detail="Repo not analyzed yet.")
+        
+    G = SESSION_GRAPHS[repo_id]
     graph_data = extract_ego_graph_data(G, file_path)
 
-    # 2. Extract specific dependencies for this file
-    file_dependencies = [
-        edge["target"] for edge in graph_data["edges"] 
-        if edge["source"] == file_path
-    ]
-
-    # 3. Get functions from local parser (added back)
-    local_functions = get_file_functions(file_path, raw_code)
-    final_functions = [
-        {"name": f["name"], "line": f["line"], "purpose": ""}
-        for f in local_functions
-    ]
-
-    # 4. Get external APIs/packages used in this file
-    final_apis = get_file_apis(file_path, raw_code)
-
-    # 5. Fetch directly from local ChromaDB!
-    from database.chroma_store import chroma_client, get_repo_collection_name
-    import json
-    
     try:
         collection_name = get_repo_collection_name(repo_id)
         collection = chroma_client.get_collection(name=collection_name)
-        
-        # We saved the file_path as the exact ID in ChromaDB earlier
         result = collection.get(ids=[file_path])
         
         if result and result['metadatas'] and len(result['metadatas']) > 0:
-            # Extract the massive JSON we saved during ingestion
             saved_json = json.loads(result['metadatas'][0]["full_architectural_profile"])
-            
             ai_insights = {
                 "summary": saved_json.get("architectural_role", "Role not defined."),
                 "functions": saved_json.get("exposed_interface", {}).get("exported_functions", []),
@@ -299,14 +278,14 @@ async def get_file_details(
                 for f in local_functions
             ]
 
-            print(f"⚡ FAST RETRIEVAL: Loaded {file_path} from local DB in 5ms!")
+            print(f"⚡ FAST RETRIEVAL: Loaded {file_path} from local DB.")
         else:
-            raise ValueError("File not yet processed into database.")
+            raise ValueError("Metadata empty.")
             
     except Exception as e:
-        print(f"⚠️ ChromaDB cache miss for {file_path}: {e}")
+        print(f"⚠️ Cache miss for {file_path}: {e}")
         ai_insights = {
-            "summary": "Summary not available. Has the repo finished analyzing?",
+            "summary": "Summary pending background analysis...",
             "functions": [],
             "functions_used": [],
             "external_apis": [],
@@ -322,16 +301,38 @@ async def get_file_details(
     }
 
 
-# --- THE NEW GLOBAL RAG ENDPOINT ---
+@app.get("/repo-evolution/{repo_id}")
+async def get_repo_evolution(repo_id: str):
+    """Compares current architecture against a mock past state for the timeline slider"""
+    if repo_id not in SESSION_GRAPHS:
+        raise HTTPException(status_code=404, detail="Repo not analyzed.")
+
+    G_current = SESSION_GRAPHS[repo_id]
+    nodes = list(G_current.nodes)
+    
+    G_old = G_current.subgraph(nodes[:-3]) if len(nodes) > 3 else G_current
+
+    delta = calculate_graph_delta(G_old, G_current)
+    narrative = await generate_evolution_narrative(delta, groq_client, "llama-3.3-70b-versatile")
+
+    return {
+        "timeline_summary": narrative,
+        "delta": delta,
+        "snapshots": [
+            {"commit": "baseline", "nodes": len(G_old.nodes), "edges": len(G_old.edges)},
+            {"commit": "current", "nodes": len(G_current.nodes), "edges": len(G_current.edges)}
+        ]
+    }
+
+
 class GlobalQueryRequest(BaseModel):
     query: str
 
 @app.post("/ask-global/{repo_id}")
 async def ask_global_question(repo_id: str, request: GlobalQueryRequest):
-    """The endpoint for the conversational chatbot UI (Streaming version)"""
-    
+    """The main RAG Chatbot endpoint (Streaming version)"""
     if repo_id not in SESSION_FILES or repo_id not in SESSION_GRAPHS:
-        raise HTTPException(status_code=404, detail="Repository code not found in memory. Please click 'Analyze' first.")
+        raise HTTPException(status_code=404, detail="Repository not found.")
         
     # Create the generator for StreamingResponse
     async def event_generator():
