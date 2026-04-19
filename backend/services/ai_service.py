@@ -177,7 +177,7 @@ async def generate_rag_summary(file_path: str, file_content: str) -> dict:
     
     try:
         response = await client.aio.models.generate_content(
-            model='gemini-2.5-flash-lite',
+            model='gemini-flash-latest',
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.1,

@@ -12,6 +12,7 @@ class AnalyzeRequest(BaseModel):
 # ==========================================
 class AnalyzeResponse(BaseModel):
     status: str
+    github_url: str
     repo_id: str
     total_files: int
     entry_points: List[str]

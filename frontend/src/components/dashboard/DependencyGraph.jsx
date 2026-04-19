@@ -1,4 +1,5 @@
 import { useCallback, useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import ReactFlow, {
   Controls,
   Background,
@@ -10,7 +11,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, GitBranch, Unlink, Grid3X3, Network, ChevronRight, History } from 'lucide-react';
+import { ArrowLeft, GitBranch, Unlink, Grid3X3, Network, ChevronRight, History, FileText } from 'lucide-react';
 import { TimelineSlider, ArchitectDiary, DiffOverlay } from './TimeMachineOverlays';
 
 // ─── Colour palette ────────────────────────────────────────────────────────────
@@ -365,11 +366,12 @@ function layoutDAG(nodes, edges) {
 }
 
 // ─── View Toggle ───────────────────────────────────────────────────────────────
-function ViewToggle({ view, setView, isLeafFolder }) {
+function ViewToggle({ view, setView, isLeafFolder, onReportClick }) {
   const options = [
     { key: 'matrix', label: 'Matrix', Icon: Grid3X3, disabled: isLeafFolder },
     { key: 'graph',  label: 'Graph',  Icon: Network, disabled: false },
-    { key: 'timeline', label: 'Time', Icon: History, disabled: false }
+    { key: 'timeline', label: 'Time', Icon: History, disabled: false },
+    { key: 'report', label: 'Report', Icon: FileText, disabled: false }
   ];
 
   return (
@@ -397,7 +399,14 @@ function ViewToggle({ view, setView, isLeafFolder }) {
         {options.map(({ key, label, Icon, disabled }) => (
           <button
             key={key}
-            onClick={() => !disabled && setView(key)}
+            onClick={() => {
+              if (disabled) return;
+              if (key === 'report') {
+                onReportClick();
+              } else {
+                setView(key);
+              }
+            }}
             disabled={disabled}
             className="relative z-10 flex items-center gap-1.5 px-4 py-1.5 rounded-full transition-colors duration-200"
             style={{
@@ -724,6 +733,7 @@ function TimeMachineGraph({ onNodeClick }) {
 
 // ─── Root Export ──────────────────────────────────────────────────────────────
 export default function DependencyGraph({ onNodeClick, onMatrixCellClick, apiData, currentFolder, onNavigateFolder }) {
+  const navigate = useNavigate();
   const fileTree = apiData?.file_tree?.length ? apiData.file_tree : MOCK_FILE_TREE;
   const rawEdges = apiData?.edges?.length     ? apiData.edges      : MOCK_EDGES;
 
@@ -809,7 +819,18 @@ export default function DependencyGraph({ onNodeClick, onMatrixCellClick, apiDat
         <Breadcrumb currentFolder={folderPrefix} onNavigate={(path) => {
           if (onNavigateFolder) onNavigateFolder(path);
         }} />
-        <ViewToggle view={view} setView={(v) => { setCrossCellCtx(null); setViewPref(v); }} isLeafFolder={isLeafFolder} />
+        <ViewToggle 
+           view={view} 
+           setView={(v) => { setCrossCellCtx(null); setViewPref(v); }} 
+           isLeafFolder={isLeafFolder} 
+           onReportClick={() => {
+              const githubUrl = apiData?.github_url || "";
+              const urlParts = githubUrl.split("/");
+              const owner = urlParts[urlParts.length - 2] || "mock_owner";
+              const repo = urlParts[urlParts.length - 1] || apiData?.repo_id || "repo";
+              navigate(`/report/${owner}/${repo}`);
+           }}
+        />
       </div>
 
       {/* ── Canvas ── */}

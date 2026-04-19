@@ -121,6 +121,7 @@ async def analyze_repo(request: AnalyzeRequest, background_tasks: BackgroundTask
         
         return {
             "status": "success",
+            "github_url": request.github_url,
             "repo_id": repo_key,
             "total_files": len(files),
             "entry_points": entry_points,
@@ -212,5 +213,25 @@ async def ask_global_question(repo_id: str, request: GlobalQueryRequest):
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
+# --- REPORT GENERATION ENDPOINTS ---
+
+from core.github_fetcher import gh
+from services.report_service import get_github_report_stats, generate_report_insights
+
+@app.get("/api/report/stats")
+async def get_report_stats(owner: str, repo: str):
+    try:
+        stats = get_github_report_stats(gh, owner, repo)
+        return {"status": "success", "data": stats}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/report/insights")
+async def post_report_insights(request: dict):
+    try:
+        insights = await generate_report_insights(request)
+        return {"status": "success", "data": insights}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
