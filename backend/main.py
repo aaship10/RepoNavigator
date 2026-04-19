@@ -17,7 +17,7 @@ from fastapi import Depends
 from schemas import AnalyzeRequest, AnalyzeResponse, FileDetailsResponse
 
 # Core Graph & Parsing Logic
-from core.github_fetcher import fetch_repo_files
+from core.github_fetcher import fetch_repo_files, fetch_repo_commits, fetch_commit_stats, fetch_commit_files_delta
 from core.parser import extract_dependencies, get_file_functions, get_file_apis
 from core.graph_engine import (
     build_global_graph,
@@ -67,32 +67,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configure CORS
-origins = [
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:3000",
-]
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # --- IN-MEMORY DATABASE (Hackathon Lifesaver) ---
 SESSION_GRAPHS = {}
 SESSION_FILES = {}
+SESSION_URLS = {} # ADDED: To store the URL for commit fetching
 
 def _get_session(repo_id: str):
     if repo_id not in SESSION_GRAPHS:
@@ -113,7 +91,7 @@ async def process_and_store_summaries(repo_id: str, raw_files: dict):
             detailed_summary_json = await generate_rag_summary(file_path, file_content)
             store_file_insight(repo_id, file_path, detailed_summary_json)
             
-            # 🛑 THE FIX: Sleep for 15 seconds to bypass Gemini's Free Tier Rate Limits
+            # Sleep for 15 seconds to bypass Gemini's Free Tier Rate Limits
             print(f"Sleeping for 15s to avoid 429 Quota Errors...")
             await asyncio.sleep(15) 
             
@@ -188,24 +166,25 @@ async def analyze_repo(
     try:
         files = fetch_repo_files(request.github_url)
         
-        # 2. Extract dependencies
+        # Extract dependencies
         dependencies = extract_dependencies(files)
         
-        # 3. Build Graph
+        # Build Graph
         G = build_global_graph(dependencies, list(files.keys()))
         
-        # 4. Save to memory
+        # Save to memory
         repo_key = request.github_url.rstrip('/').split('/')[-1]
         SESSION_GRAPHS[repo_key] = G
         SESSION_FILES[repo_key] = files
+        SESSION_URLS[repo_key] = request.github_url # Save URL for Time Machine
         
-        # 5. Get Entry Points
+        # Get Entry Points
         entry_points = identify_entry_points(G)
         
-        # 6. KICK OFF CHROMADB INGESTION (NO DELETION)
+        # Kick off background task
         background_tasks.add_task(process_and_store_summaries, repo_key, files)
         
-        # 7. RECORD HISTORY (If Logged In)
+        # Record history if logged in
         if current_user:
             from datetime import datetime
             
@@ -215,7 +194,7 @@ async def analyze_repo(
             ).first()
 
             if existing_history:
-                # Bump the timestamp so it jumps to the top of the unified history list
+                # Bump the timestamp so it jumps to the top
                 existing_history.timestamp = datetime.utcnow()
             else:
                 history_entry = History(
@@ -238,6 +217,54 @@ async def analyze_repo(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+# ---------------------------------------------------------
+# NEW TIME MACHINE ENDPOINTS
+# ---------------------------------------------------------
+@app.get("/repo/{repo_id}/commits")
+async def get_commits(repo_id: str):
+    if repo_id not in SESSION_URLS:
+        raise HTTPException(status_code=404, detail="Repo URL not found in session. Please run /analyze first.")
+    return fetch_repo_commits(SESSION_URLS[repo_id], limit=10)
+
+@app.get("/repo/{repo_id}/commit-insights/{sha}")
+async def get_commit_insights(repo_id: str, sha: str):
+    if repo_id not in SESSION_URLS:
+        raise HTTPException(status_code=404, detail="Repo URL not found.")
+    
+    # 1. Fetch the raw files that changed directly from the GitHub commit ref!
+    github_url = SESSION_URLS[repo_id]
+    delta = fetch_commit_files_delta(github_url, sha)
+    
+    # 2. Build Mini-Graphs locally for just these affected files
+    # Old State
+    dep_old = extract_dependencies(delta["old_files"])
+    G_old = build_global_graph(dep_old, list(delta["old_files"].keys()))
+    
+    # New State
+    dep_new = extract_dependencies(delta["new_files"])
+    G_new = build_global_graph(dep_new, list(delta["new_files"].keys()))
+    
+    # 3. Use Evolution Service to calculate structural deltas
+    delta_data = calculate_graph_delta(G_old, G_new)
+    
+    # Let's keep the additions/removals around for the UI to display diff numbers
+    delta_data["message"] = delta["message"]
+    delta_data["added_lines"] = delta["added_count"]
+    delta_data["removed_lines"] = delta["removed_count"]
+    
+    # 4. Generate professional architectural diary narrative
+    narrative = await generate_evolution_narrative(delta_data, groq_client, "llama-3.3-70b-versatile")
+    if "unavailable" in narrative.lower(): # fallback if AI fails
+        narrative = "I made some architectural adjustments to the codebase, shifting dependencies and modifying core file structures."
+
+    return {
+        "diffSummary": {
+            "added": delta["added_count"],
+            "removed": delta["removed_count"]
+        },
+        "narrative": narrative
+    }
+
 
 @app.get("/file-details/{repo_id}", response_model=FileDetailsResponse)
 async def get_file_details(repo_id: str, file_path: str):
@@ -249,6 +276,12 @@ async def get_file_details(repo_id: str, file_path: str):
     G = SESSION_GRAPHS[repo_id]
     graph_data = extract_ego_graph_data(G, file_path)
 
+    # Prepare safe local fallbacks in case AI is still generating
+    files = SESSION_FILES.get(repo_id, {})
+    raw_code = files.get(file_path, "")
+    local_functions = get_file_functions(file_path, raw_code)
+    final_apis = get_file_apis(file_path, raw_code)
+    
     try:
         collection_name = get_repo_collection_name(repo_id)
         collection = chroma_client.get_collection(name=collection_name)
@@ -272,7 +305,7 @@ async def get_file_details(repo_id: str, file_path: str):
             final_functions = [
                 {
                     "name": f["name"],
-                    "line": f["line"],
+                    "line": f.get("line", 0),
                     "purpose": ai_map.get(f["name"].lower().strip(), "")
                 }
                 for f in local_functions
@@ -291,6 +324,7 @@ async def get_file_details(repo_id: str, file_path: str):
             "external_apis": [],
             "data_flow": ""
         }
+        final_functions = local_functions
 
     return {
         "graph": graph_data,

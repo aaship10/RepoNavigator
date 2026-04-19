@@ -41,15 +41,19 @@ async def generate_evolution_narrative(delta_data: dict, client, model_name: str
     prompt = f"""
     Act as a Senior Architect explaining a code evolution.
     
+    COMMIT MESSAGE: {delta_data.get('message', 'N/A')}
+    
     CHANGES DETECTED:
+    - Lines Added: {delta_data.get('added_lines', 0)}
+    - Lines Removed: {delta_data.get('removed_lines', 0)}
     - Files Added: {delta_data['added_files']}
     - Files Removed: {delta_data['removed_files']}
     - New Connections: {len(delta_data['added_dependencies'])}
     - Complexity Change: {delta_data['metrics']['complexity_delta']:.4f}
     
     Provide a 2-paragraph 'Architect's Diary' entry. 
-    Paragraph 1: Summarize the primary structural shift. 
-    Paragraph 2: Identify one potential risk (e.g., circular dependencies, increased coupling, or a file becoming a bottleneck).
+    Paragraph 1: Summarize the primary structural shift, referencing the commit message, files, and lines. 
+    Paragraph 2: Identify one potential architectural risk/outcome (e.g., circular dependencies, tighter coupling, or isolation).
     """
     
     try:

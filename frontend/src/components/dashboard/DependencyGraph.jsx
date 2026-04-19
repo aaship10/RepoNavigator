@@ -11,7 +11,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, GitBranch, Unlink, Grid3X3, Network, ChevronRight, History } from 'lucide-react';
-import { TimelineSlider, ArchitectDiary, DiffOverlay } from './TimeMachineOverlays';
+import TimeMachineContainer from './TimeMachineOverlays';
 
 // ─── Colour palette ────────────────────────────────────────────────────────────
 const PALETTE = [
@@ -37,40 +37,6 @@ const MOCK_EDGES = [
   ['auth/oauth.js',   'db/sessions.js'],
 ];
 const MOCK_FILE_TREE = [...new Set(MOCK_EDGES.flatMap(([s,t])=>[s,t]))];
-
-// ─── Timeline Mock Data ────────────────────────────────────────────────────────
-const MOCK_TIMELINE_STEPS = [
-  {
-    label: "v1.0 Baseline",
-    narrative: "Initial repository setup. The core architecture was monolithic and tightly coupled.",
-    delta: { addedNodes: [], removedNodes: [], addedEdges: [], removedEdges: [] },
-    diffSummary: { added: 0, removed: 0 },
-    baseNodes: [...MOCK_FILE_TREE].filter(f => !['auth/jwt.js', 'auth/oauth.js', 'core/db.js', 'core/logger.js'].includes(f)),
-    baseEdges: MOCK_EDGES.filter(e => !e.includes('auth/jwt.js') && !e.includes('auth/oauth.js') && !e.includes('core/db.js') && !e.includes('core/logger.js'))
-  },
-  {
-    label: "v1.2 Modularity",
-    narrative: "Extracted authentication and validation logic into dedicated modules. A great step forward for separation of concerns.",
-    delta: { 
-      addedNodes: ['auth/jwt.js', 'auth/oauth.js'], 
-      removedNodes: [], 
-      addedEdges: [['api/auth.js', 'auth/jwt.js'], ['auth/jwt.js', 'core/config.js'], ['auth/oauth.js', 'db/sessions.js']], 
-      removedEdges: [] 
-    },
-    diffSummary: { added: 2, removed: 0 }
-  },
-  {
-    label: "v2.0 Refactor",
-    narrative: "Massive refactor to remove the monolithic utility class. The system is now significantly more maintainable.",
-    delta: { 
-      addedNodes: ['core/db.js', 'core/logger.js'], 
-      removedNodes: ['core/utils.js'], 
-      addedEdges: [['api/routes.js', 'core/logger.js'], ['core/db.js', 'db/conn.js'], ['ui/Profile.jsx', 'core/logger.js']], 
-      removedEdges: [['api/routes.js', 'core/utils.js'], ['ui/Profile.jsx', 'core/utils.js'], ['core/utils.js', 'db/conn.js']] 
-    },
-    diffSummary: { added: 2, removed: 1 }
-  }
-];
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 function topFolder(filePath) {
@@ -619,105 +585,10 @@ function FileGraph({ graphData, onNodeClick }) {
 }
 
 // ─── Time Machine Canvas ───────────────────────────────────────────────────────
-function TimeMachineGraph({ onNodeClick }) {
-  const [timelineIndex, setTimelineIndex] = useState(0);
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-
-  useEffect(() => {
-     handleScrub(0);
-  }, []);
-
-  const handleScrub = (newIndex) => {
-    let currentFiles = new Set(MOCK_TIMELINE_STEPS[0].baseNodes);
-    let currentEdgesList = [...MOCK_TIMELINE_STEPS[0].baseEdges];
-
-    for (let i = 1; i <= newIndex; i++) {
-        const d = MOCK_TIMELINE_STEPS[i].delta;
-        d.addedNodes.forEach(n => currentFiles.add(n));
-        d.removedNodes.forEach(n => currentFiles.delete(n));
-        currentEdgesList.push(...d.addedEdges);
-        currentEdgesList = currentEdgesList.filter(e => {
-            return !d.removedEdges.some(re => re[0] === e[0] && re[1] === e[1]);
-        });
-    }
-
-    const targetDelta = newIndex > 0 ? MOCK_TIMELINE_STEPS[newIndex].delta : { addedNodes: [], removedNodes: [], addedEdges: [], removedEdges: [] };
-    const currentFolders = [...new Set([...currentFiles].map(topFolder))];
-
-    const rawNodes = [...currentFiles].map(f => {
-       const isNew = targetDelta.addedNodes.includes(f);
-       return {
-          id: f, type: 'custom',
-          data: {
-             label: f.split('/').pop(),
-             folder: topFolder(f),
-             accent: folderColor(topFolder(f), currentFolders), 
-             heat: computeHeat(f, currentEdgesList),
-             description: relPath(f, ''),
-             isNew
-          }
-       };
-    });
-    
-    targetDelta.removedNodes.forEach(f => {
-        rawNodes.push({
-          id: f, type: 'custom',
-          data: {
-             label: f.split('/').pop(),
-             folder: topFolder(f),
-             accent: folderColor(topFolder(f), currentFolders), 
-             heat: computeHeat(f, currentEdgesList),
-             description: relPath(f, ''),
-             isRemoved: true
-          }
-        });
-    });
-
-    const newNodes = layoutDAG(rawNodes, currentEdgesList.map(([s, t]) => ({ source: s, target: t })));
-    
-    const formattedEdges = currentEdgesList.map(([s, t]) => {
-       const isNew = targetDelta.addedEdges.some(e => e[0] === s && e[1] === t);
-       return {
-          id: `e-${s}-${t}`, source: s, target: t, animated: isNew,
-          style: { 
-             stroke: isNew ? '#4ade80' : 'rgba(255,255,255,0.15)', 
-             strokeWidth: isNew ? 2 : 1.5,
-             transition: 'stroke 0.5s ease',
-          }
-       };
-    });
-
-    setNodes(newNodes);
-    setEdges(formattedEdges);
-    setTimelineIndex(newIndex);
-
-    setTimeout(() => {
-        setNodes(nds => nds.filter(n => !n.data.isRemoved).map(n => ({ ...n, data: { ...n.data, isNew: false } })));
-        setEdges(eds => eds.map(e => ({ ...e, animated: false, style: { stroke: 'rgba(255,255,255,0.15)', strokeWidth: 1.5 } })));
-    }, 2000);
-  };
-
-  const currentStep = MOCK_TIMELINE_STEPS[timelineIndex];
-
+function TimeMachineGraph({ repoId }) {
   return (
     <div className="w-full h-full relative">
-       <ReactFlow
-          nodes={nodes} edges={edges}
-          onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
-          onNodeClick={(_, node) => onNodeClick && onNodeClick(node.id)}
-          nodeTypes={nodeTypes}
-          fitView fitViewOptions={{ padding: 0.35, duration: 800 }}
-          minZoom={0.2} maxZoom={2}
-          proOptions={{ hideAttribution: true }}
-        >
-          <Background variant="dots" gap={32} size={1} color="rgba(255,255,255,0.04)" />
-          <Controls showInteractive={false} position="bottom-left" style={{ marginBottom: 120, marginLeft: 20 }} />
-        </ReactFlow>
-
-        <TimelineSlider steps={MOCK_TIMELINE_STEPS} currentIndex={timelineIndex} onChange={handleScrub} />
-        <ArchitectDiary narrative={currentStep?.narrative || ''} />
-        <DiffOverlay diffSummary={currentStep?.diffSummary || null} />
+       <TimeMachineContainer repoId={repoId} />
     </div>
   );
 }
@@ -840,9 +711,7 @@ export default function DependencyGraph({ onNodeClick, onMatrixCellClick, apiDat
               transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
               className="w-full h-full absolute inset-0"
             >
-              <ReactFlowProvider>
-                <TimeMachineGraph onNodeClick={onNodeClick} />
-              </ReactFlowProvider>
+              <TimeMachineGraph repoId={apiData?.repo_id} />
             </motion.div>
           ) : (
             <motion.div

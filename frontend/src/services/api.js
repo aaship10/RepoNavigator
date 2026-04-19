@@ -179,3 +179,24 @@ export async function streamGlobalQuery(repoId, query, onChunk) {
     reader.releaseLock();
   }
 }
+
+/**
+ * TIME MACHINE & COMMITS
+ */
+export async function fetchCommitHistory(repoId) {
+  const response = await fetch(`${BASE_URL}/repo/${repoId}/commits`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) throw new Error('Failed to fetch commits');
+  return response.json();
+}
+
+export async function fetchCommitInsights(repoId, sha) {
+  const response = await fetch(`${BASE_URL}/repo/${repoId}/commit-insights/${sha}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) throw new Error('Failed to fetch commit insights');
+  return response.json();
+}
