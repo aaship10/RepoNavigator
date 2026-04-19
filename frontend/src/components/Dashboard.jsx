@@ -6,6 +6,7 @@ import FileSidebar from './dashboard/FileSidebar';
 import DependencyGraph from './dashboard/DependencyGraph';
 import AIPanel from './dashboard/AIPanel';
 import OnboardingStrip from './dashboard/OnboardingStrip';
+import { streamGlobalQuery } from '../services/api';
 
 export default function Dashboard({ apiData }) {
   const { repoId } = useParams();
@@ -23,6 +24,10 @@ export default function Dashboard({ apiData }) {
   const [selectedNode, setSelectedNode] = useState(null);
   const [showAIPanel, setShowAIPanel] = useState(false);
   const [currentFolder, setCurrentFolder] = useState('');
+
+  // Global Query Streaming State
+  const [globalQueryText, setGlobalQueryText] = useState('');
+  const [isStreamingQuery, setIsStreamingQuery] = useState(false);
 
   const handleNodeClick = useCallback((nodeId) => {
     setSelectedNode(nodeId);
@@ -47,6 +52,28 @@ export default function Dashboard({ apiData }) {
     setCurrentFolder(path || '');
   }, []);
 
+  const handleGlobalSearch = useCallback(async (query) => {
+    if (!query || !repoId) return;
+
+    setGlobalQueryText('');
+    setIsStreamingQuery(true);
+
+    try {
+      await streamGlobalQuery(repoId, query, (chunk) => {
+        setGlobalQueryText((prev) => prev + chunk);
+      });
+    } catch (err) {
+      setGlobalQueryText(`❌ Error: ${err.message}`);
+    } finally {
+      setIsStreamingQuery(false);
+    }
+  }, [repoId]);
+
+  const handleCloseQuery = useCallback(() => {
+    setGlobalQueryText('');
+    setIsStreamingQuery(false);
+  }, []);
+
   const handleCloseAI = useCallback(() => {
     setShowAIPanel(false);
     setSelectedNode(null);
@@ -62,7 +89,7 @@ export default function Dashboard({ apiData }) {
     >
       {/* Top Nav — fixed height bar */}
       <div className="h-14 flex-shrink-0 w-full">
-        <TopNav repoUrl={repoUrlForNav} />
+        <TopNav repoUrl={repoUrlForNav} onSearch={handleGlobalSearch} />
       </div>
 
       {/* Main Content Area */}
@@ -100,7 +127,12 @@ export default function Dashboard({ apiData }) {
 
             {/* Bottom Onboarding Strip — 15% height */}
             <div className="flex-shrink-0" style={{ height: '15%', minHeight: '120px' }}>
-              <OnboardingStrip onSelectFile={handleNodeClick} />
+              <OnboardingStrip 
+                onSelectFile={handleNodeClick} 
+                globalQueryText={globalQueryText}
+                isStreamingQuery={isStreamingQuery}
+                onCloseQuery={handleCloseQuery}
+              />
             </div>
           </div>
 

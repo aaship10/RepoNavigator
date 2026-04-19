@@ -1,7 +1,16 @@
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Search, GitBranch, Sparkles, Settings, Bell } from 'lucide-react';
 
-export default function TopNav({ repoUrl }) {
+export default function TopNav({ repoUrl, onSearch }) {
+  const [searchValue, setSearchValue] = useState('');
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && searchValue.trim()) {
+      onSearch?.(searchValue);
+      setSearchValue(''); // Clear input after search
+    }
+  };
   const repoName = repoUrl
     ? repoUrl.replace(/^https?:\/\/(www\.)?github\.com\//, '').replace(/\/$/, '')
     : 'owner/repository';
@@ -53,6 +62,9 @@ export default function TopNav({ repoUrl }) {
           <input
             id="nlp-search-input"
             type="text"
+            value={searchValue}
+            onChange={(e) => setSearchValue(e.target.value)}
+            onKeyDown={handleKeyDown}
             placeholder="Ask anything... (e.g., 'Where is auth handled?')"
             className="bg-transparent border-none outline-none text-sm text-text-primary placeholder-text-muted/60 w-full"
           />

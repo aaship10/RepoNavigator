@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import networkx as nx
 from pydantic import BaseModel
@@ -20,7 +20,7 @@ from core.graph_engine import (
 
 # AI & Database Services
 from services.ai_service import generate_file_insights, generate_rag_summary 
-from services.rag_service import answer_global_query
+from services.rag_service import answer_global_query, stream_global_query
 from database.chroma_store import store_file_insight
 
 app = FastAPI(title="Repo Navigator API")
@@ -81,11 +81,14 @@ async def process_and_store_summaries(repo_id: str, raw_files: dict):
             detailed_summary_json = await generate_rag_summary(file_path, file_content)
             store_file_insight(repo_id, file_path, detailed_summary_json)
             
-            # 🛑 THE FIX: Sleep for 5 seconds to bypass Gemini's Free Tier Rate Limits
-            print(f"Sleeping for 5s to avoid 429 Quota Errors...")
-            await asyncio.sleep(5) 
+            # 🛑 THE FIX: Sleep for 15 seconds to bypass Gemini's Free Tier Rate Limits
+            print(f"Sleeping for 15s to avoid 429 Quota Errors...")
+            await asyncio.sleep(15) 
             
         except Exception as e:
+            if "429" in str(e):
+                print(f"🛑 Rate limit hit (429)! Skipping remaining files for now to avoid ban.")
+                break
             print(f"⚠️ Failed to ingest {file_path}: {e}")
             
     print(f"✅ RAG ingestion complete for {repo_id}!")
@@ -121,7 +124,8 @@ async def analyze_repo(request: AnalyzeRequest, background_tasks: BackgroundTask
             "repo_id": repo_key,
             "total_files": len(files),
             "entry_points": entry_points,
-            "file_tree": list(files.keys()) 
+            "file_tree": list(files.keys()),
+            "edges": list(G.edges())
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -191,20 +195,22 @@ class GlobalQueryRequest(BaseModel):
 
 @app.post("/ask-global/{repo_id}")
 async def ask_global_question(repo_id: str, request: GlobalQueryRequest):
-    """The endpoint for the conversational chatbot UI"""
+    """The endpoint for the conversational chatbot UI (Streaming version)"""
     
     if repo_id not in SESSION_FILES or repo_id not in SESSION_GRAPHS:
         raise HTTPException(status_code=404, detail="Repository code not found in memory. Please click 'Analyze' first.")
         
-    # Pass the query, raw files, AND the graph G to get those downstream dependencies!
-    ai_response = await answer_global_query(
-        repo_id=repo_id, 
-        user_query=request.query, 
-        raw_files_dict=SESSION_FILES[repo_id],
-        G=SESSION_GRAPHS[repo_id] 
-    )
-    
-    return ai_response
+    # Create the generator for StreamingResponse
+    async def event_generator():
+        async for chunk in stream_global_query(
+            repo_id=repo_id, 
+            user_query=request.query, 
+            raw_files_dict=SESSION_FILES[repo_id],
+            G=SESSION_GRAPHS[repo_id]
+        ):
+            yield f"data: {chunk}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 

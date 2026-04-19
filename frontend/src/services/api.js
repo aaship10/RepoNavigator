@@ -8,7 +8,10 @@ const BASE_URL = 'http://localhost:8000';
  */
 export async function analyzeRepoStream(githubUrl, onProgress) {
   const payload = { github_url: githubUrl };
-  console.log("🌐 [api.js] Starting analysis stream for:", githubUrl);
+  console.log("🌐 [api.js] Starting analysis for:", githubUrl);
+
+  // Mock initial progress
+  onProgress?.({ value: 10, message: 'Contacting server...' });
 
   const response = await fetch(`${BASE_URL}/analyze`, {
     method: 'POST',
@@ -21,40 +24,11 @@ export async function analyzeRepoStream(githubUrl, onProgress) {
     throw new Error(errorData.detail || `Server responded with ${response.status}`);
   }
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let finalData = null;
+  onProgress?.({ value: 50, message: 'Engine warming up...' });
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop(); // Keep partial line in buffer
-
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        const rawJson = line.replace('data: ', '').trim();
-        if (!rawJson) continue;
-        try {
-          const event = JSON.parse(rawJson);
-          if (event.type === 'progress') {
-            onProgress?.({ value: event.value, message: event.message });
-          } else if (event.type === 'data') {
-            finalData = event.payload;
-          } else if (event.type === 'error') {
-            throw new Error(event.message);
-          }
-        } catch (e) {
-          console.error("❌ [api.js] Failed to parse SSE line:", line, e);
-        }
-      }
-    }
-  }
-
-  if (!finalData) throw new Error("Stream closed without receiving final analysis data.");
+  const finalData = await response.json();
+  
+  onProgress?.({ value: 100, message: 'Analysis complete!' });
   return finalData;
 }
 
@@ -99,5 +73,54 @@ export async function fetchFileDetails(repoId, filePath) {
   } catch (err) {
     console.error("🔥 [api.js] Caught error in fetchFileDetails:", err);
     throw err;
+  }
+}
+/**
+ * Streams a global architectural query response from the backend.
+ * @param {string} repoId - The unique ID of the repository.
+ * @param {string} query - The natural language question.
+ * @param {Function} onChunk - Callback triggered for each received text chunk.
+ */
+export async function streamGlobalQuery(repoId, query, onChunk) {
+  console.log(`🌐 [api.js] Starting global query stream for ${repoId}: "${query}"`);
+
+  const response = await fetch(`${BASE_URL}/ask-global/${repoId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: 'Query failed' }));
+    throw new Error(errorData.detail || `Server error: ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      
+      // FastAPI StreamingResponse yields 'data: <text>\n\n'
+      // We strip the prefix and suffix to get raw text
+      const cleanChunks = chunk
+        .split('\n\n')
+        .filter(line => line.startsWith('data: '))
+        .map(line => line.replace('data: ', ''))
+        .join('');
+
+      if (cleanChunks) {
+        onChunk(cleanChunks);
+      }
+    }
+  } catch (err) {
+    console.error("❌ [api.js] Stream reading error:", err);
+    throw err;
+  } finally {
+    reader.releaseLock();
   }
 }

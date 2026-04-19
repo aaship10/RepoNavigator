@@ -18,7 +18,26 @@ if not GROQ_API_KEY:
 client = AsyncGroq(api_key=GROQ_API_KEY)
 
 # ==========================================
-# THE "HOSTAGE" SYSTEM PROMPT
+# THE "CHATTY" STREAMING PROMPT
+# ==========================================
+STREAM_SYSTEM_PROMPT = """
+You are CodeCure AI's Conversational Architect. 
+Your goal is to provide deep, insightful, and readable explanations of the codebase.
+
+FORMATTING RULES:
+1. USE MARKDOWN: Always use bullet points, bold text for file names, and code blocks for snippets.
+2. BE CONVERSATIONAL: Explain logic like you are talking to a peer developer.
+3. CITATIONS: Always mention which files you are referencing (e.g., `src/auth.js`).
+4. STRUCTURE: Use clear headings for different parts of your explanation.
+
+CORE OPERATING RULES:
+- Use ONLY the provided context. 
+- If you don't know the answer, say "I don't have enough context to answer that fully yet."
+- Focus on architectural patterns and data flow.
+"""
+
+# ==========================================
+# THE "HOSTAGE" SYSTEM PROMPT (Legacy/JSON)
 # ==========================================
 SYSTEM_PROMPT = """
 You are CodeCure AI's Codebase Intelligence Engine — a strict, context-bound code analyst.
@@ -139,3 +158,53 @@ async def answer_global_query(repo_id: str, user_query: str, raw_files_dict: dic
             "confidence_level": "LOW",
             "final_answer": {"summary": f"The AI engine encountered an error while reasoning: {str(e)}"},
         }
+
+async def stream_global_query(repo_id: str, user_query: str, raw_files_dict: dict, G: nx.DiGraph):
+    """
+    Async generator that streams Markdown chunks from Llama 3.3.
+    """
+    # 1. RETRIEVE PRIMARY FILES
+    retrieved_docs = search_global_query(repo_id, user_query, top_k=3)
+    if not retrieved_docs:
+        yield "data: I haven't analyzed this repository yet. Please run the analysis first.\n\n"
+        return
+
+    # 2. EXPAND CONTEXT USING GRAPH
+    files_to_inject = set()
+    for doc in retrieved_docs:
+        primary_file = doc["file_path"]
+        files_to_inject.add(primary_file)
+        if primary_file in G.nodes:
+            subgraph = nx.ego_graph(G, primary_file, radius=2)
+            files_to_inject.update(subgraph.nodes)
+
+    # 3. BUILD CONTEXT STRING
+    context_blocks = []
+    for file_path in files_to_inject:
+        raw_code = raw_files_dict.get(file_path, "")
+        if not raw_code: continue
+        skeleton = generate_code_skeleton(raw_code, file_path)
+        context_blocks.append(f"--- FILE: {file_path} ---\n{skeleton}\n---")
+    
+    full_context_string = "\n\n".join(context_blocks)
+
+    # 4. CALL GROQ WITH STREAMING
+    user_prompt = f"CONTEXT:\n{full_context_string}\n\nUSER QUESTION: {user_query}\n\nRespond in clean Markdown."
+    
+    try:
+        stream = await client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": STREAM_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt}
+            ],
+            model="llama-3.3-70b-versatile",
+            temperature=0.2,
+            stream=True,
+        )
+
+        async for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
+                
+    except Exception as e:
+        yield f"\n\n❌ **Error during streaming:** {str(e)}"
