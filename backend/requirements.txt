@@ -3,8 +3,10 @@ uvicorn
 PyGithub
 python-dotenv
 pydantic
-google-generativeai
+google-genai
 networkx
 tree-sitter>=0.22.0
 tree-sitter-python
 tree-sitter-javascript
+groq
+chromadb

@@ -154,7 +154,7 @@ export default function Dashboard({ apiData }) {
               >
                 <AIPanel
                   selectedNode={selectedNode}
-                  repoId={apiData?.repo_id}
+                  repoId={apiData?.repo_id || repoId || 'mock'}
                   onClose={handleCloseAI}
                 />
               </motion.div>

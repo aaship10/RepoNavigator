@@ -164,7 +164,10 @@ export default function AIPanel({ selectedNode, repoId, onClose }) {
       } catch (err) {
         console.error("❌ [AIPanel.jsx] Failed to fetch AI insights:", err);
         setError("AI analysis unavailable for this file.");
-        setData(mockAIData[selectedNode] || null);
+        setData(mockAIData[selectedNode] || {
+           summary: "Could not fetch AI analysis and no mock data available.",
+           risk: 0, dependsOn: [], usedBy: [], keyFunctions: []
+        });
       } finally {
         setLoading(false);
       }

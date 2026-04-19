@@ -1,6 +1,7 @@
 import os
 import json
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -46,7 +47,14 @@ async def generate_file_insights(file_path: str, file_content: str, dependencies
     }}
     """
     try:
-        response = await model.generate_content_async(prompt)
+        response = await client.aio.models.generate_content(
+            model='gemini-flash-latest',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.1,
+                response_mime_type="application/json",
+            )
+        )
         return json.loads(response.text)
     except Exception as e:
         print(f"Gemini UI Insights Error for {file_path}: {e}")
@@ -192,7 +200,14 @@ async def generate_rag_summary(file_path: str, file_content: str) -> dict:
     """
     
     try:
-        response = await model.generate_content_async(prompt)
+        response = await client.aio.models.generate_content(
+            model='gemini-2.5-flash-lite',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.1,
+                response_mime_type="application/json",
+            )
+        )
         return json.loads(response.text)
     except Exception as e:
         print(f"Gemini RAG Ingestion Error for {file_path}: {e}")
