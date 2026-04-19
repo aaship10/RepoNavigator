@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List
+from typing import List, Dict, Any
 
 # ==========================================
 # 1. REQUEST MODELS
@@ -55,7 +55,19 @@ class AIInsights(BaseModel):
 # ==========================================
 # 5. RESPONSE MODELS: /file-details Endpoint
 # ==========================================
+
+class FunctionInfo(BaseModel):
+    name: str
+    line: int
+    purpose: str
+
+class ApiInfo(BaseModel):
+    name: str
+    line: int
+
 class FileDetailsResponse(BaseModel):
     graph: GraphData
     ai_insights: AIInsights
+    functions: List[FunctionInfo]
+    apis: List[ApiInfo]
     onboarding_path: List[str]

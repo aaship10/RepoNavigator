@@ -1,5 +1,4 @@
 from typing import Dict, List, Tuple
-
 from tree_sitter import Language, Parser, Query, QueryCursor
 import tree_sitter_python as tspython
 import tree_sitter_javascript as tsjavascript
@@ -27,10 +26,33 @@ JS_DEP_QUERY = Query(JS_LANG, """
         arguments: (arguments (string) @req))
 """)
 
-# --- 3. DEPENDENCY EXTRACTION (Unchanged & Perfected) ---
+# --- 3. FUNCTION QUERIES (added for get_file_functions) ---
+PY_FUNC_QUERY = Query(PY_LANG, """
+    (function_definition name: (identifier) @func_name)
+""")
+
+JS_FUNC_QUERY = Query(JS_LANG, """
+    (function_declaration name: (identifier) @func_name)
+    (variable_declarator
+        name: (identifier) @func_name
+        value: [(arrow_function) (function_expression)])
+    (method_definition name: (property_identifier) @func_name)
+    (assignment_expression
+        left: (member_expression property: (property_identifier) @func_name)
+        right: [(arrow_function) (function_expression)])
+    (pair
+        key: (property_identifier) @func_name
+        value: [(arrow_function) (function_expression)])
+""")
+
+# --- 4. DEPENDENCY EXTRACTION (Unchanged & Perfected) ---
 def extract_dependencies(file_data: Dict[str, str]) -> List[Tuple[str, str]]:
+    """
+    Returns a list of (source_path, target_path) tuples representing
+    internal import relationships across all files in the repo.
+    """
     dependencies = []
-    file_paths = list(file_data.keys())
+    file_paths = set(file_data.keys())
 
     for source_path, content in file_data.items():
         ext = source_path.split('.')[-1].lower()
@@ -46,7 +68,7 @@ def extract_dependencies(file_data: Dict[str, str]) -> List[Tuple[str, str]]:
             cursor = QueryCursor(JS_DEP_QUERY)
             matches = cursor.matches(tree.root_node)
         else:
-            continue
+            return []
 
         for pattern_idx, captures in matches:
             for capture_name, nodes in captures.items():
@@ -79,7 +101,129 @@ def extract_dependencies(file_data: Dict[str, str]) -> List[Tuple[str, str]]:
     return dependencies
 
 
-# --- 4. NEW: RAG SKELETONIZER ---
+# --- 5. FUNCTION EXTRACTION (added) ---
+def get_file_functions(file_path: str, content: str) -> List[Dict]:
+    """
+    Returns a list of dicts: [{"name": str, "line": int}, ...]
+    Extracts all function/method definitions from a file using tree-sitter.
+    """
+    ext = file_path.split('.')[-1].lower()
+    source_bytes = content.encode('utf-8')
+    seen_names = set()
+    functions = []
+
+    try:
+        if ext == 'py':
+            tree = py_parser.parse(source_bytes)
+            query = PY_FUNC_QUERY
+        elif ext in ['js', 'ts', 'jsx', 'tsx']:
+            tree = js_parser.parse(source_bytes)
+            query = JS_FUNC_QUERY
+        else:
+            return []
+
+        cursor = QueryCursor(query)
+        matches = cursor.matches(tree.root_node)
+
+        for pattern_idx, captures in matches:
+            for capture_name, nodes in captures.items():
+                if not isinstance(nodes, list):
+                    nodes = [nodes]
+                for node in nodes:
+                    name = node.text.decode('utf-8')
+                    # Dedup by name — keep first (outermost) occurrence
+                    if name not in seen_names:
+                        seen_names.add(name)
+                        functions.append({
+                            "name": name,
+                            "line": node.start_point[0] + 1,  # 1-indexed
+                        })
+
+    except Exception as e:
+        print(f"[parser] Function extraction error in {file_path}: {e}")
+
+    return functions
+
+
+# Python stdlib top-level module names (common subset — enough to filter noise)
+_PY_STDLIB = {
+    "os", "sys", "re", "io", "abc", "ast", "copy", "csv", "math", "json",
+    "time", "uuid", "enum", "typing", "types", "string", "struct", "base64",
+    "hashlib", "hmac", "logging", "pathlib", "functools", "itertools",
+    "collections", "contextlib", "dataclasses", "datetime", "traceback",
+    "threading", "multiprocessing", "subprocess", "socket", "ssl", "http",
+    "urllib", "email", "html", "xml", "sqlite3", "pickle", "shutil",
+    "tempfile", "glob", "fnmatch", "stat", "platform", "signal", "gc",
+    "weakref", "inspect", "dis", "token", "tokenize", "keyword", "builtins",
+    "warnings", "unittest", "doctest", "pdb", "profile", "timeit", "random",
+    "secrets", "statistics", "decimal", "fractions", "cmath", "array",
+    "queue", "heapq", "bisect", "textwrap", "pprint", "reprlib", "codecs",
+    "getpass", "getopt", "argparse", "configparser", "tomllib", "zipfile",
+    "tarfile", "gzip", "bz2", "lzma", "zlib", "concurrent", "asyncio",
+    "selectors", "xmlrpc", "wsgiref", "ftplib", "imaplib", "poplib",
+    "smtplib", "telnetlib", "uuid", "ipaddress", "binascii", "quopri",
+}
+
+
+# --- 6. API / EXTERNAL PACKAGE EXTRACTION (added) ---
+def get_file_apis(file_path: str, content: str) -> List[Dict]:
+    """
+    Returns a list of dicts: [{"name": str, "line": int}, ...]
+    Extracts external package/API imports — filters out:
+      - relative imports (start with '.' for JS, or are internal paths for Python)
+      - Python stdlib modules
+    """
+    ext = file_path.split('.')[-1].lower()
+    source_bytes = content.encode('utf-8')
+    seen = set()
+    apis = []
+
+    try:
+        if ext == 'py':
+            tree = py_parser.parse(source_bytes)
+            cursor = QueryCursor(PY_DEP_QUERY)
+            matches = cursor.matches(tree.root_node)
+
+            for pattern_idx, captures in matches:
+                for capture_name, nodes in captures.items():
+                    if not isinstance(nodes, list):
+                        nodes = [nodes]
+                    for node in nodes:
+                        raw = node.text.decode('utf-8').strip("'\"")
+                        # Top-level package name (e.g. "google.genai" -> "google")
+                        top = raw.split('.')[0]
+                        line = node.start_point[0] + 1
+                        # Skip stdlib and relative/internal imports
+                        if top and top not in _PY_STDLIB and not top.startswith('.') and top not in seen:
+                            seen.add(top)
+                            apis.append({"name": raw, "line": line})
+
+        elif ext in ['js', 'ts', 'jsx', 'tsx']:
+            tree = js_parser.parse(source_bytes)
+            cursor = QueryCursor(JS_DEP_QUERY)
+            matches = cursor.matches(tree.root_node)
+
+            for pattern_idx, captures in matches:
+                for capture_name, nodes in captures.items():
+                    if capture_name == "func":
+                        continue
+                    if not isinstance(nodes, list):
+                        nodes = [nodes]
+                    for node in nodes:
+                        raw = node.text.decode('utf-8').strip("'\"")
+                        line = node.start_point[0] + 1
+                        # Skip relative imports (start with . or /)
+                        if raw and not raw.startswith('.') and not raw.startswith('/') and raw not in seen:
+                            seen.add(raw)
+                            apis.append({"name": raw, "line": line})
+
+    except Exception as e:
+        print(f"[parser] API extraction error in {file_path}: {e}")
+
+    return apis
+
+
+# --- 7. RAG SKELETONIZER (Unchanged) ---
 def generate_code_skeleton(file_content: str, filepath: str) -> str:
     """
     Strips out function bodies and implementation details to save LLM tokens.
