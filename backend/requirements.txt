@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+PyGithub
+python-dotenv
+pydantic
+google-generativeai
+networkx
+tree-sitter>=0.22.0
+tree-sitter-python
+tree-sitter-javascript
+groq
+chromadb
