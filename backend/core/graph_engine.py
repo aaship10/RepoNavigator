@@ -1,15 +1,6 @@
 import networkx as nx
 from typing import List, Tuple, Dict, Any
 
-# def build_global_graph(dependencies: List[Tuple[str, str]]) -> nx.DiGraph:
-#     """
-#     Builds the master Directed Graph from a list of (source, target) tuples.
-#     This graph is kept in memory to quickly generate Ego Graphs later.
-#     """
-#     G = nx.DiGraph()
-#     G.add_edges_from(dependencies)
-#     return G
-
 # Update the parameters to accept all_files
 def build_global_graph(dependencies: List[Tuple[str, str]], all_files: List[str]) -> nx.DiGraph:
     G = nx.DiGraph()
