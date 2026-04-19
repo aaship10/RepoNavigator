@@ -1,6 +1,150 @@
+// import { useRef } from 'react';
+// import { motion, AnimatePresence } from 'framer-motion';
+// import { mockOnboardingPath } from '../../data/mockData';
+
+// const heatColors = {
+//   red: '#F87171',
+//   yellow: '#FBBF24',
+//   grey: '#9CA3AF',
+//   blue: '#60A5FA',
+// };
+
+// import { Search, X, MessageSquare, Loader2 } from 'lucide-react';
+// import ReactMarkdown from 'react-markdown';
+
+// export default function OnboardingStrip({ onSelectFile }) {
+//   const scrollRef = useRef(null);
+
+//   return (
+//     <div
+//       className="h-full flex flex-col overflow-hidden"
+//       style={{
+//         background: '#1A1F2B',
+//         boxShadow: 'inset 3px 3px 8px #141820, inset -3px -3px 8px #232939',
+//         borderRadius: '24px',
+//         border: '1px solid rgba(255,255,255,0.03)',
+//       }}
+//     >
+//       {/* Header */}
+//       <div className="flex items-center justify-between px-6 pt-4 pb-1 flex-shrink-0">
+//         <div className="flex items-center gap-3">
+//           <div className="w-6 h-6 rounded-lg flex items-center justify-center"
+//                style={{ background: '#1E232E', boxShadow: 'inset 2px 2px 4px #141820, inset -2px -2px 4px #283048' }}>
+//             <span className="text-xs">🗺️</span>
+//           </div>
+//           <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.2em]">
+//             Onboarding Path
+//           </h3>
+//         </div>
+//         <div className="flex items-center gap-2">
+//           <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" style={{ boxShadow: '0 0 8px #10b981' }} />
+//           <span className="text-[9px] text-gray-600 font-mono uppercase tracking-widest">
+//             {mockOnboardingPath.length} critical modules
+//           </span>
+//         </div>
+//       </div>
+
+//       {/* Scrolling timeline */}
+//       <div
+//         ref={scrollRef}
+//         className="flex-1 flex items-center gap-0 overflow-x-auto px-6 pb-4 pt-1 no-scrollbar"
+//         style={{ scrollBehavior: 'smooth' }}
+//       >
+//         {mockOnboardingPath.map((item, index) => {
+//           const color = heatColors[item.heat] || heatColors.blue;
+//           return (
+//             <div key={item.id} className="flex items-center flex-shrink-0">
+//               {/* Step card */}
+//               <motion.button
+//                 onClick={() => onSelectFile(item.file.split('.')[0].toLowerCase())}
+//                 className="flex flex-col items-start gap-1.5 px-5 py-4 rounded-2xl transition-all duration-300 cursor-pointer group min-w-[160px] relative overflow-hidden"
+//                 style={{
+//                   background: '#232939',
+//                   boxShadow: '4px 4px 10px #141820, -4px -4px 10px #2a3248',
+//                   border: '1px solid rgba(255,255,255,0.04)',
+//                 }}
+//                 whileHover={{
+//                   y: -4,
+//                   scale: 1.02,
+//                   boxShadow: `6px 12px 20px #141820, -6px -6px 20px #2a3248, 0 0 20px ${color}15`,
+//                   borderColor: `${color}33`,
+//                 }}
+//                 whileTap={{ scale: 0.98 }}
+//               >
+//                 {/* Decorative glow corner */}
+//                 <div className="absolute top-0 right-0 w-8 h-8 opacity-20 pointer-events-none"
+//                      style={{
+//                        background: `radial-gradient(circle at top right, ${color}, transparent 70%)`
+//                      }} />
+
+//                 <div className="flex items-center gap-2.5 mb-0.5">
+//                   <div className="w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold"
+//                        style={{
+//                          background: '#1A1F2B',
+//                          boxShadow: 'inset 2px 2px 4px rgba(0,0,0,0.3)',
+//                          color: color,
+//                        }}>
+//                     {item.id}
+//                   </div>
+//                   <span className="text-lg leading-none">{item.icon}</span>
+//                 </div>
+
+//                 <span className="text-[11px] font-bold text-gray-200 group-hover:text-cyan-400 transition-colors font-mono truncate w-full text-left">
+//                   {item.file}
+//                 </span>
+
+//                 <span className="text-[9px] text-gray-500 leading-relaxed text-left line-clamp-2 w-full opacity-80">
+//                   {item.desc}
+//                 </span>
+//               </motion.button>
+
+//               {/* Connector line */}
+//               {index < mockOnboardingPath.length - 1 && (
+//                 <div className="flex items-center flex-shrink-0 mx-2">
+//                   <div className="relative flex items-center justify-center w-12">
+//                     {/* Background line */}
+//                     <div className="h-[1px] w-full bg-gray-800" />
+                    
+//                     {/* Animated flow line */}
+//                     <motion.div
+//                       className="absolute left-0 h-[2px] rounded-full"
+//                       style={{
+//                         background: `linear-gradient(90deg, transparent, ${heatColors[mockOnboardingPath[index+1].heat] || '#6366F1'}, transparent)`,
+//                         boxShadow: `0 0 10px ${heatColors[mockOnboardingPath[index+1].heat] || '#6366F1'}44`
+//                       }}
+//                       animate={{
+//                         left: ['-20%', '100%'],
+//                         width: ['20%', '40%', '20%'],
+//                         opacity: [0, 1, 0]
+//                       }}
+//                       transition={{
+//                         duration: 2.5,
+//                         repeat: Infinity,
+//                         delay: index * 0.4,
+//                         ease: "easeInOut"
+//                       }}
+//                     />
+//                   </div>
+//                 </div>
+//               )}
+//             </div>
+//           );
+//         })}
+//       </div>
+
+//       <style>{`
+//         .no-scrollbar::-webkit-scrollbar { display: none; }
+//         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+//       `}</style>
+//     </div>
+//   );
+// }
+
+
 import { useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { mockOnboardingPath } from '../../data/mockData';
+import { Loader2 } from 'lucide-react';
 
 const heatColors = {
   red: '#F87171',
@@ -9,11 +153,40 @@ const heatColors = {
   blue: '#60A5FA',
 };
 
-import { Search, X, MessageSquare, Loader2 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
+// Assign a heat color by step index — cycles through the palette
+const stepColors = ['#60A5FA', '#2DD4BF', '#A855F7', '#FBBF24', '#F87171', '#4ADE80', '#E879F9', '#FB923C', '#60A5FA', '#2DD4BF'];
 
-export default function OnboardingStrip({ onSelectFile }) {
+// Derive a short display name from a file path, e.g. "core/parser.py" → "parser.py"
+function shortName(filePath) {
+  return filePath.split('/').pop();
+}
+
+// Pick an emoji based on file extension / name hints
+function fileEmoji(filePath) {
+  const name = filePath.toLowerCase();
+  if (name.includes('main') || name.includes('index') || name.includes('app')) return '🚀';
+  if (name.includes('auth') || name.includes('jwt') || name.includes('session')) return '🔐';
+  if (name.includes('db') || name.includes('database') || name.includes('store') || name.includes('chroma')) return '🗄️';
+  if (name.includes('route') || name.includes('api') || name.includes('endpoint')) return '🔀';
+  if (name.includes('model') || name.includes('schema')) return '📐';
+  if (name.includes('test')) return '🧪';
+  if (name.includes('config') || name.includes('setting') || name.includes('env')) return '⚙️';
+  if (name.includes('util') || name.includes('helper')) return '🛠️';
+  if (name.includes('graph') || name.includes('engine')) return '🕸️';
+  if (name.includes('service') || name.includes('rag') || name.includes('ai')) return '🤖';
+  if (name.endsWith('.py')) return '🐍';
+  if (name.endsWith('.js') || name.endsWith('.jsx') || name.endsWith('.ts') || name.endsWith('.tsx')) return '⚛️';
+  if (name.endsWith('.json')) return '📋';
+  if (name.endsWith('.md')) return '📄';
+  return '📁';
+}
+
+export default function OnboardingStrip({ onSelectFile, cards = [], loading = false }) {
   const scrollRef = useRef(null);
+
+  // Use real cards if available, otherwise fall back to mock while loading
+  const isUsingMock = cards.length === 0;
+  const displayCount = isUsingMock ? mockOnboardingPath.length : cards.length;
 
   return (
     <div
@@ -37,9 +210,14 @@ export default function OnboardingStrip({ onSelectFile }) {
           </h3>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" style={{ boxShadow: '0 0 8px #10b981' }} />
+          {loading ? (
+            <Loader2 className="w-3 h-3 text-cyan-400 animate-spin" />
+          ) : (
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"
+                 style={{ boxShadow: '0 0 8px #10b981' }} />
+          )}
           <span className="text-[9px] text-gray-600 font-mono uppercase tracking-widest">
-            {mockOnboardingPath.length} critical modules
+            {loading ? 'AI generating path...' : `${displayCount} critical modules`}
           </span>
         </div>
       </div>
@@ -50,13 +228,14 @@ export default function OnboardingStrip({ onSelectFile }) {
         className="flex-1 flex items-center gap-0 overflow-x-auto px-6 pb-4 pt-1 no-scrollbar"
         style={{ scrollBehavior: 'smooth' }}
       >
-        {mockOnboardingPath.map((item, index) => {
-          const color = heatColors[item.heat] || heatColors.blue;
+        {/* ── REAL AI CARDS ── */}
+        {!isUsingMock && cards.map((card, index) => {
+          const color = stepColors[index % stepColors.length];
+          const emoji = fileEmoji(card.file);
           return (
-            <div key={item.id} className="flex items-center flex-shrink-0">
-              {/* Step card */}
+            <div key={card.file} className="flex items-center flex-shrink-0">
               <motion.button
-                onClick={() => onSelectFile(item.file.split('.')[0].toLowerCase())}
+                onClick={() => onSelectFile(card.file)}
                 className="flex flex-col items-start gap-1.5 px-5 py-4 rounded-2xl transition-all duration-300 cursor-pointer group min-w-[160px] relative overflow-hidden"
                 style={{
                   background: '#232939',
@@ -70,20 +249,91 @@ export default function OnboardingStrip({ onSelectFile }) {
                   borderColor: `${color}33`,
                 }}
                 whileTap={{ scale: 0.98 }}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.06 }}
               >
                 {/* Decorative glow corner */}
                 <div className="absolute top-0 right-0 w-8 h-8 opacity-20 pointer-events-none"
-                     style={{
-                       background: `radial-gradient(circle at top right, ${color}, transparent 70%)`
-                     }} />
+                     style={{ background: `radial-gradient(circle at top right, ${color}, transparent 70%)` }} />
 
                 <div className="flex items-center gap-2.5 mb-0.5">
                   <div className="w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold"
                        style={{
                          background: '#1A1F2B',
                          boxShadow: 'inset 2px 2px 4px rgba(0,0,0,0.3)',
-                         color: color,
+                         color,
                        }}>
+                    {card.step}
+                  </div>
+                  <span className="text-lg leading-none">{emoji}</span>
+                </div>
+
+                <span className="text-[11px] font-bold text-gray-200 group-hover:text-cyan-400 transition-colors font-mono truncate w-full text-left">
+                  {shortName(card.file)}
+                </span>
+
+                <span className="text-[9px] text-gray-500 leading-relaxed text-left line-clamp-2 w-full opacity-80">
+                  {card.desc}
+                </span>
+
+                {card.why && (
+                  <span className="text-[9px] leading-relaxed text-left line-clamp-1 w-full"
+                        style={{ color, opacity: 0.65 }}>
+                    {card.why}
+                  </span>
+                )}
+              </motion.button>
+
+              {/* Connector line */}
+              {index < cards.length - 1 && (
+                <div className="flex items-center flex-shrink-0 mx-2">
+                  <div className="relative flex items-center justify-center w-12">
+                    <div className="h-[1px] w-full bg-gray-800" />
+                    <motion.div
+                      className="absolute left-0 h-[2px] rounded-full"
+                      style={{
+                        background: `linear-gradient(90deg, transparent, ${stepColors[(index + 1) % stepColors.length]}, transparent)`,
+                        boxShadow: `0 0 10px ${stepColors[(index + 1) % stepColors.length]}44`
+                      }}
+                      animate={{ left: ['-20%', '100%'], width: ['20%', '40%', '20%'], opacity: [0, 1, 0] }}
+                      transition={{ duration: 2.5, repeat: Infinity, delay: index * 0.4, ease: "easeInOut" }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {/* ── MOCK FALLBACK (while loading or no data) ── */}
+        {isUsingMock && mockOnboardingPath.map((item, index) => {
+          const color = heatColors[item.heat] || heatColors.blue;
+          return (
+            <div key={item.id} className="flex items-center flex-shrink-0">
+              <motion.button
+                onClick={() => onSelectFile(item.file.split('.')[0].toLowerCase())}
+                className="flex flex-col items-start gap-1.5 px-5 py-4 rounded-2xl transition-all duration-300 cursor-pointer group min-w-[160px] relative overflow-hidden"
+                style={{
+                  background: '#232939',
+                  boxShadow: '4px 4px 10px #141820, -4px -4px 10px #2a3248',
+                  border: '1px solid rgba(255,255,255,0.04)',
+                  opacity: loading ? 0.4 : 1,
+                }}
+                whileHover={{
+                  y: -4,
+                  scale: 1.02,
+                  boxShadow: `6px 12px 20px #141820, -6px -6px 20px #2a3248, 0 0 20px ${color}15`,
+                  borderColor: `${color}33`,
+                }}
+                whileTap={{ scale: 0.98 }}
+              >
+                <div className="absolute top-0 right-0 w-8 h-8 opacity-20 pointer-events-none"
+                     style={{ background: `radial-gradient(circle at top right, ${color}, transparent 70%)` }} />
+
+                <div className="flex items-center gap-2.5 mb-0.5">
+                  <div className="w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold"
+                       style={{ background: '#1A1F2B', boxShadow: 'inset 2px 2px 4px rgba(0,0,0,0.3)', color }}>
                     {item.id}
                   </div>
                   <span className="text-lg leading-none">{item.icon}</span>
@@ -98,31 +348,18 @@ export default function OnboardingStrip({ onSelectFile }) {
                 </span>
               </motion.button>
 
-              {/* Connector line */}
               {index < mockOnboardingPath.length - 1 && (
                 <div className="flex items-center flex-shrink-0 mx-2">
                   <div className="relative flex items-center justify-center w-12">
-                    {/* Background line */}
                     <div className="h-[1px] w-full bg-gray-800" />
-                    
-                    {/* Animated flow line */}
                     <motion.div
                       className="absolute left-0 h-[2px] rounded-full"
                       style={{
                         background: `linear-gradient(90deg, transparent, ${heatColors[mockOnboardingPath[index+1].heat] || '#6366F1'}, transparent)`,
                         boxShadow: `0 0 10px ${heatColors[mockOnboardingPath[index+1].heat] || '#6366F1'}44`
                       }}
-                      animate={{
-                        left: ['-20%', '100%'],
-                        width: ['20%', '40%', '20%'],
-                        opacity: [0, 1, 0]
-                      }}
-                      transition={{
-                        duration: 2.5,
-                        repeat: Infinity,
-                        delay: index * 0.4,
-                        ease: "easeInOut"
-                      }}
+                      animate={{ left: ['-20%', '100%'], width: ['20%', '40%', '20%'], opacity: [0, 1, 0] }}
+                      transition={{ duration: 2.5, repeat: Infinity, delay: index * 0.4, ease: "easeInOut" }}
                     />
                   </div>
                 </div>
