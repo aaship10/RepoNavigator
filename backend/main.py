@@ -1,9 +1,13 @@
 import asyncio
 import json
+import warnings
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 import networkx as nx
 from pydantic import BaseModel
+
+# Suppress the deprecation warning for the demo
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 # Schemas
 from schemas import AnalyzeRequest, AnalyzeResponse, FileDetailsResponse
@@ -24,7 +28,6 @@ from services.rag_service import answer_global_query, client as groq_client
 from services.evolution_service import calculate_graph_delta, generate_evolution_narrative
 from database.chroma_store import (
     store_file_insight, 
-    delete_repo_collection, 
     chroma_client, 
     get_repo_collection_name
 )
@@ -87,10 +90,7 @@ async def analyze_repo(request: AnalyzeRequest, background_tasks: BackgroundTask
         # 5. Get Entry Points
         entry_points = identify_entry_points(G)
         
-        # 6. 🧹 THE WIPER: Delete old collection before starting fresh ingestion
-        delete_repo_collection(repo_key)
-        
-        # 7. KICK OFF CHROMADB INGESTION IN THE BACKGROUND!
+        # 6. KICK OFF CHROMADB INGESTION (NO DELETION)
         background_tasks.add_task(process_and_store_summaries, repo_key, files)
         
         return {
@@ -114,7 +114,6 @@ async def get_file_details(repo_id: str, file_path: str):
     G = SESSION_GRAPHS[repo_id]
     graph_data = extract_ego_graph_data(G, file_path)
 
-    # 1. Attempt to fetch from Local Vector DB
     try:
         collection_name = get_repo_collection_name(repo_id)
         collection = chroma_client.get_collection(name=collection_name)
@@ -155,7 +154,6 @@ async def get_repo_evolution(repo_id: str):
     G_current = SESSION_GRAPHS[repo_id]
     nodes = list(G_current.nodes)
     
-    # MOCK: Simulate evolution by showing a state with 3 fewer files
     G_old = G_current.subgraph(nodes[:-3]) if len(nodes) > 3 else G_current
 
     delta = calculate_graph_delta(G_old, G_current)
