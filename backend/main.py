@@ -4,6 +4,9 @@ from fastapi.middleware.cors import CORSMiddleware
 import networkx as nx
 from pydantic import BaseModel
 import asyncio
+from typing import List, Optional
+from sqlalchemy.orm import Session
+from fastapi import Depends
 
 # Schemas
 from schemas import AnalyzeRequest, AnalyzeResponse, FileDetailsResponse
@@ -22,6 +25,19 @@ from core.graph_engine import (
 from services.ai_service import generate_file_insights, generate_rag_summary 
 from services.rag_service import answer_global_query, stream_global_query
 from database.chroma_store import store_file_insight
+
+# Auth & Database
+from db import Base, engine, get_db
+from models import User, History
+from auth import (
+    get_password_hash, 
+    verify_password, 
+    create_access_token, 
+    get_current_user, 
+    get_current_user_optional
+)
+
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Repo Navigator API")
 
@@ -94,8 +110,65 @@ async def process_and_store_summaries(repo_id: str, raw_files: dict):
     print(f"✅ RAG ingestion complete for {repo_id}!")
 
 
+# --- AUTH & HISTORY SCHEMAS ---
+class UserCreate(BaseModel):
+    email: str
+    password: str
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+# --- AUTH ENDPOINTS ---
+@app.post("/signup", response_model=Token)
+def signup(user: UserCreate, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.email == user.email).first()
+    if db_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    hashed_password = get_password_hash(user.password)
+    new_user = User(email=user.email, hashed_password=hashed_password)
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
+    access_token = create_access_token(data={"sub": new_user.email})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/login", response_model=Token)
+def login(user: UserLogin, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.email == user.email).first()
+    if not db_user or not verify_password(user.password, db_user.hashed_password):
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
+    
+    access_token = create_access_token(data={"sub": db_user.email})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.get("/history")
+def get_user_history(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    history_records = db.query(History).filter(History.user_id == current_user.id).order_by(History.timestamp.desc()).all()
+    return [
+        {
+            "id": h.id,
+            "repo_url": h.repo_url,
+            "repo_name": h.repo_name,
+            "timestamp": h.timestamp,
+        }
+        for h in history_records
+    ]
+
+
 @app.post("/analyze", response_model=AnalyzeResponse)
-async def analyze_repo(request: AnalyzeRequest, background_tasks: BackgroundTasks):
+async def analyze_repo(
+    request: AnalyzeRequest, 
+    background_tasks: BackgroundTasks,
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
     try:
         print(f"Fetching files for: {request.github_url}...")
         
@@ -119,6 +192,28 @@ async def analyze_repo(request: AnalyzeRequest, background_tasks: BackgroundTask
         # 6. KICK OFF CHROMADB INGESTION IN THE BACKGROUND!
         background_tasks.add_task(process_and_store_summaries, repo_key, files)
         
+        # 7. RECORD HISTORY (If Logged In)
+        if current_user:
+            from datetime import datetime
+            
+            existing_history = db.query(History).filter(
+                History.user_id == current_user.id,
+                History.repo_url == request.github_url
+            ).first()
+
+            if existing_history:
+                # Bump the timestamp so it jumps to the top of the unified history list
+                existing_history.timestamp = datetime.utcnow()
+            else:
+                history_entry = History(
+                    user_id=current_user.id,
+                    repo_url=request.github_url,
+                    repo_name=repo_key
+                )
+                db.add(history_entry)
+                
+            db.commit()
+
         return {
             "status": "success",
             "repo_id": repo_key,
