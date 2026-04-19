@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Query as QueryParam
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import networkx as nx
@@ -13,12 +13,12 @@ from schemas import AnalyzeRequest, AnalyzeResponse, FileDetailsResponse
 
 # Core Graph & Parsing Logic
 from core.github_fetcher import fetch_repo_files
-from core.parser import extract_dependencies
+from core.parser import extract_dependencies, get_file_functions, get_file_apis
 from core.graph_engine import (
-    build_global_graph, 
-    extract_ego_graph_data, 
+    build_global_graph,
+    extract_ego_graph_data,
     identify_entry_points,
-    get_onboarding_path
+    get_onboarding_path,
 )
 
 # AI & Database Services
@@ -39,7 +39,7 @@ from auth import (
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Repo Navigator API")
+app = FastAPI(title="RepoNav API", version="1.0.0")
 
 # Configure CORS
 origins = [
@@ -73,11 +73,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- CRITICAL: CORS Setup ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
-    allow_credentials=True,
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -85,6 +83,14 @@ app.add_middleware(
 # --- IN-MEMORY DATABASE (Hackathon Lifesaver) ---
 SESSION_GRAPHS = {}
 SESSION_FILES = {}
+
+def _get_session(repo_id: str):
+    if repo_id not in SESSION_GRAPHS:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Session '{repo_id}' not found. Run /analyze first."
+        )
+    return SESSION_GRAPHS[repo_id], SESSION_FILES[repo_id]
 
 # --- BACKGROUND INGESTION TASK ---
 async def process_and_store_summaries(repo_id: str, raw_files: dict):
@@ -170,9 +176,6 @@ async def analyze_repo(
     db: Session = Depends(get_db)
 ):
     try:
-        print(f"Fetching files for: {request.github_url}...")
-        
-        # 1. Fetch raw code
         files = fetch_repo_files(request.github_url)
         
         # 2. Extract dependencies
@@ -227,15 +230,20 @@ async def analyze_repo(
 
 
 @app.get("/file-details/{repo_id}", response_model=FileDetailsResponse)
-async def get_file_details(repo_id: str, file_path: str):
-    """Called when a user clicks a file in the sidebar"""
-    
-    if repo_id not in SESSION_GRAPHS:
-        raise HTTPException(status_code=404, detail="Repo not analyzed yet. Please analyze the URL first.")
-        
-    G = SESSION_GRAPHS[repo_id]
-    
-    # 1. Get the Ego Graph data formatted for React Flow
+async def get_file_details(
+    repo_id: str,
+    file_path: str = QueryParam(..., description="Relative path of the file in the repo"),
+):
+    G, files = _get_session(repo_id)
+
+    raw_code = files.get(file_path)
+    if raw_code is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"File '{file_path}' not found in session '{repo_id}'."
+        )
+
+    # 1. Ego subgraph (graph_engine — already working perfectly)
     graph_data = extract_ego_graph_data(G, file_path)
 
     # 2. Extract specific dependencies for this file
@@ -244,7 +252,17 @@ async def get_file_details(repo_id: str, file_path: str):
         if edge["source"] == file_path
     ]
 
-    # 3. Fetch directly from local ChromaDB!
+    # 3. Get functions from local parser (added back)
+    local_functions = get_file_functions(file_path, raw_code)
+    final_functions = [
+        {"name": f["name"], "line": f["line"], "purpose": ""}
+        for f in local_functions
+    ]
+
+    # 4. Get external APIs/packages used in this file
+    final_apis = get_file_apis(file_path, raw_code)
+
+    # 5. Fetch directly from local ChromaDB!
     from database.chroma_store import chroma_client, get_repo_collection_name
     import json
     
@@ -265,6 +283,21 @@ async def get_file_details(repo_id: str, file_path: str):
                 "functions": saved_json.get("exposed_interface", {}).get("exported_functions", []),
                 "data_flow": saved_json.get("data_flow", {}).get("transformations", "No data flow tracked.")
             }
+
+            # Merge AI purposes into final_functions
+            ai_map = {
+                f["name"].lower().strip(): f.get("purpose", "")
+                for f in ai_insights.get("functions", [])
+            }
+            final_functions = [
+                {
+                    "name": f["name"],
+                    "line": f["line"],
+                    "purpose": ai_map.get(f["name"].lower().strip(), "")
+                }
+                for f in local_functions
+            ]
+
             print(f"⚡ FAST RETRIEVAL: Loaded {file_path} from local DB in 5ms!")
         else:
             raise ValueError("File not yet processed into database.")
@@ -280,6 +313,8 @@ async def get_file_details(repo_id: str, file_path: str):
     return {
         "graph": graph_data,
         "ai_insights": ai_insights,
+        "functions": final_functions,
+        "apis": final_apis,
         "onboarding_path": get_onboarding_path(G)
     }
 
@@ -306,6 +341,3 @@ async def ask_global_question(repo_id: str, request: GlobalQueryRequest):
             yield f"data: {chunk}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
-
-
-
