@@ -6,6 +6,7 @@ import FileSidebar from './dashboard/FileSidebar';
 import DependencyGraph from './dashboard/DependencyGraph';
 import AIPanel from './dashboard/AIPanel';
 import OnboardingStrip from './dashboard/OnboardingStrip';
+import GlobalChatPanel from './dashboard/GlobalChatPanel';
 import { streamGlobalQuery } from '../services/api';
 
 export default function Dashboard({ apiData }) {
@@ -28,19 +29,23 @@ export default function Dashboard({ apiData }) {
   // Global Query Streaming State
   const [globalQueryText, setGlobalQueryText] = useState('');
   const [isStreamingQuery, setIsStreamingQuery] = useState(false);
+  const [showGlobalChat, setShowGlobalChat] = useState(false);
 
   const handleNodeClick = useCallback((nodeId) => {
     setSelectedNode(nodeId);
     setShowAIPanel(!!nodeId);
+    if (nodeId) setShowGlobalChat(false); // Close chat if a file is selected
   }, []);
 
   const handleMatrixClick = useCallback((cellData) => {
     setShowAIPanel(!!cellData);
+    if (cellData) setShowGlobalChat(false);
   }, []);
 
   const handleFileSelect = useCallback((fileId) => {
     setSelectedNode(fileId);
     setShowAIPanel(true);
+    setShowGlobalChat(false);
   }, []);
 
   const handleFolderSelect = useCallback((folderId) => {
@@ -57,6 +62,8 @@ export default function Dashboard({ apiData }) {
 
     setGlobalQueryText('');
     setIsStreamingQuery(true);
+    setShowGlobalChat(true);   // Open chat panel
+    setShowAIPanel(false);      // Close file panel
 
     try {
       await streamGlobalQuery(repoId, query, (chunk) => {
@@ -72,6 +79,7 @@ export default function Dashboard({ apiData }) {
   const handleCloseQuery = useCallback(() => {
     setGlobalQueryText('');
     setIsStreamingQuery(false);
+    setShowGlobalChat(false);
   }, []);
 
   const handleCloseAI = useCallback(() => {
@@ -129,17 +137,15 @@ export default function Dashboard({ apiData }) {
             <div className="flex-shrink-0" style={{ height: '15%', minHeight: '120px' }}>
               <OnboardingStrip 
                 onSelectFile={handleNodeClick} 
-                globalQueryText={globalQueryText}
-                isStreamingQuery={isStreamingQuery}
-                onCloseQuery={handleCloseQuery}
               />
             </div>
           </div>
 
-          {/* AI Panel — 25% when visible. Framer Motion slide in */}
-          <AnimatePresence>
+          {/* Sliding Right Panels — 25% when visible. */}
+          <AnimatePresence mode="wait">
             {showAIPanel && (
               <motion.div 
+                key="ai-panel"
                 initial={{ x: '100%', opacity: 0, width: 0 }}
                 animate={{ x: 0, opacity: 1, width: '25%' }}
                 exit={{ x: '100%', opacity: 0, width: 0 }}
@@ -150,6 +156,23 @@ export default function Dashboard({ apiData }) {
                   selectedNode={selectedNode}
                   repoId={apiData?.repo_id}
                   onClose={handleCloseAI}
+                />
+              </motion.div>
+            )}
+
+            {showGlobalChat && (
+              <motion.div 
+                key="chat-panel"
+                initial={{ x: '100%', opacity: 0, width: 0 }}
+                animate={{ x: 0, opacity: 1, width: '25%' }}
+                exit={{ x: '100%', opacity: 0, width: 0 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                className="min-w-[280px] max-w-[380px] flex-shrink-0 h-full overflow-hidden"
+              >
+                <GlobalChatPanel 
+                  queryText={globalQueryText}
+                  isStreaming={isStreamingQuery}
+                  onClose={handleCloseQuery}
                 />
               </motion.div>
             )}
