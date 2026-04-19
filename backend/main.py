@@ -1,8 +1,9 @@
+import asyncio
+import json
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 import networkx as nx
 from pydantic import BaseModel
-import asyncio
 
 # Schemas
 from schemas import AnalyzeRequest, AnalyzeResponse, FileDetailsResponse
@@ -18,9 +19,15 @@ from core.graph_engine import (
 )
 
 # AI & Database Services
-from services.ai_service import generate_file_insights, generate_rag_summary 
-from services.rag_service import answer_global_query
-from database.chroma_store import store_file_insight
+from services.ai_service import generate_rag_summary 
+from services.rag_service import answer_global_query, client as groq_client
+from services.evolution_service import calculate_graph_delta, generate_evolution_narrative
+from database.chroma_store import (
+    store_file_insight, 
+    delete_repo_collection, 
+    chroma_client, 
+    get_repo_collection_name
+)
 
 app = FastAPI(title="Repo Navigator API")
 
@@ -48,7 +55,7 @@ async def process_and_store_summaries(repo_id: str, raw_files: dict):
             detailed_summary_json = await generate_rag_summary(file_path, file_content)
             store_file_insight(repo_id, file_path, detailed_summary_json)
             
-            # 🛑 THE FIX: Sleep for 5 seconds to bypass Gemini's Free Tier Rate Limits
+            # 🛑 THE FIX: Sleep for 5s to bypass Gemini Free Tier Rate Limits
             print(f"Sleeping for 5s to avoid 429 Quota Errors...")
             await asyncio.sleep(5) 
             
@@ -80,7 +87,10 @@ async def analyze_repo(request: AnalyzeRequest, background_tasks: BackgroundTask
         # 5. Get Entry Points
         entry_points = identify_entry_points(G)
         
-        # 6. KICK OFF CHROMADB INGESTION IN THE BACKGROUND!
+        # 6. 🧹 THE WIPER: Delete old collection before starting fresh ingestion
+        delete_repo_collection(repo_key)
+        
+        # 7. KICK OFF CHROMADB INGESTION IN THE BACKGROUND!
         background_tasks.add_task(process_and_store_summaries, repo_key, files)
         
         return {
@@ -96,51 +106,35 @@ async def analyze_repo(request: AnalyzeRequest, background_tasks: BackgroundTask
 
 @app.get("/file-details/{repo_id}", response_model=FileDetailsResponse)
 async def get_file_details(repo_id: str, file_path: str):
-    """Called when a user clicks a file in the sidebar"""
+    """Optimized: Fetches insights directly from ChromaDB for zero-latency sidebar"""
     
     if repo_id not in SESSION_GRAPHS:
-        raise HTTPException(status_code=404, detail="Repo not analyzed yet. Please analyze the URL first.")
+        raise HTTPException(status_code=404, detail="Repo not analyzed yet.")
         
     G = SESSION_GRAPHS[repo_id]
-    
-    # 1. Get the Ego Graph data formatted for React Flow
     graph_data = extract_ego_graph_data(G, file_path)
 
-    # 2. Extract specific dependencies for this file
-    file_dependencies = [
-        edge["target"] for edge in graph_data["edges"] 
-        if edge["source"] == file_path
-    ]
-
-    # 3. Fetch directly from local ChromaDB!
-    from database.chroma_store import chroma_client, get_repo_collection_name
-    import json
-    
+    # 1. Attempt to fetch from Local Vector DB
     try:
         collection_name = get_repo_collection_name(repo_id)
         collection = chroma_client.get_collection(name=collection_name)
-        
-        # We saved the file_path as the exact ID in ChromaDB earlier
         result = collection.get(ids=[file_path])
         
         if result and result['metadatas'] and len(result['metadatas']) > 0:
-            # Extract the massive JSON we saved during ingestion
             saved_json = json.loads(result['metadatas'][0]["full_architectural_profile"])
-            
-            # Format it to match what your React frontend is expecting
             ai_insights = {
                 "summary": saved_json.get("architectural_role", "Role not defined."),
                 "functions": saved_json.get("exposed_interface", {}).get("exported_functions", []),
                 "data_flow": saved_json.get("data_flow", {}).get("transformations", "No data flow tracked.")
             }
-            print(f"⚡ FAST RETRIEVAL: Loaded {file_path} from local DB in 5ms!")
+            print(f"⚡ FAST RETRIEVAL: Loaded {file_path} from local DB.")
         else:
-            raise ValueError("File not yet processed into database.")
+            raise ValueError("Metadata empty.")
             
     except Exception as e:
-        print(f"⚠️ ChromaDB cache miss for {file_path}: {e}")
+        print(f"⚠️ Cache miss for {file_path}: {e}")
         ai_insights = {
-            "summary": "Summary not available. Has the repo finished analyzing?",
+            "summary": "Summary pending background analysis...",
             "functions": [],
             "data_flow": ""
         }
@@ -152,26 +146,43 @@ async def get_file_details(repo_id: str, file_path: str):
     }
 
 
-# --- THE NEW GLOBAL RAG ENDPOINT ---
+@app.get("/repo-evolution/{repo_id}")
+async def get_repo_evolution(repo_id: str):
+    """Compares current architecture against a mock past state for the timeline slider"""
+    if repo_id not in SESSION_GRAPHS:
+        raise HTTPException(status_code=404, detail="Repo not analyzed.")
+
+    G_current = SESSION_GRAPHS[repo_id]
+    nodes = list(G_current.nodes)
+    
+    # MOCK: Simulate evolution by showing a state with 3 fewer files
+    G_old = G_current.subgraph(nodes[:-3]) if len(nodes) > 3 else G_current
+
+    delta = calculate_graph_delta(G_old, G_current)
+    narrative = await generate_evolution_narrative(delta, groq_client, "llama-3.3-70b-versatile")
+
+    return {
+        "timeline_summary": narrative,
+        "delta": delta,
+        "snapshots": [
+            {"commit": "baseline", "nodes": len(G_old.nodes), "edges": len(G_old.edges)},
+            {"commit": "current", "nodes": len(G_current.nodes), "edges": len(G_current.edges)}
+        ]
+    }
+
+
 class GlobalQueryRequest(BaseModel):
     query: str
 
 @app.post("/ask-global/{repo_id}")
 async def ask_global_question(repo_id: str, request: GlobalQueryRequest):
-    """The endpoint for the conversational chatbot UI"""
-    
+    """The main RAG Chatbot endpoint"""
     if repo_id not in SESSION_FILES or repo_id not in SESSION_GRAPHS:
-        raise HTTPException(status_code=404, detail="Repository code not found in memory. Please click 'Analyze' first.")
+        raise HTTPException(status_code=404, detail="Repository not found.")
         
-    # Pass the query, raw files, AND the graph G to get those downstream dependencies!
-    ai_response = await answer_global_query(
+    return await answer_global_query(
         repo_id=repo_id, 
         user_query=request.query, 
         raw_files_dict=SESSION_FILES[repo_id],
         G=SESSION_GRAPHS[repo_id] 
     )
-    
-    return ai_response
-
-
-
