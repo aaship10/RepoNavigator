@@ -1,9 +1,19 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Search, GitBranch, Sparkles, Settings, Bell } from 'lucide-react';
+import { Search, GitBranch, Sparkles, Settings, Bell, LogIn, LogOut, Clock, Plus } from 'lucide-react';
 
 export default function TopNav({ repoUrl, onSearch }) {
   const [searchValue, setSearchValue] = useState('');
+  const navigate = useNavigate();
+
+  const isLoggedIn = !!localStorage.getItem('token');
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    navigate('/');
+    window.location.reload(); // Hard reload to clear application memory
+  };
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && searchValue.trim()) {
@@ -84,24 +94,64 @@ export default function TopNav({ repoUrl, onSearch }) {
 
       {/* Right Controls */}
       <div className="flex items-center gap-2 flex-shrink-0">
+        
         <button
-          className="w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-200 hover:bg-neu-highlight"
+          onClick={() => navigate('/')}
+          className="px-4 h-8 rounded-xl flex items-center justify-center gap-1.5 transition-all duration-200 hover:bg-neu-highlight text-xs font-bold text-accent-cyan"
           style={{
-            background: '#232939',
+            background: 'rgba(34, 211, 238, 0.05)',
             boxShadow: '2px 2px 5px #141820, -2px -2px 5px #283048',
+            border: '1px solid rgba(34, 211, 238, 0.2)',
           }}
         >
-          <Sparkles className="w-4 h-4 text-accent-cyan" />
+          <Plus className="w-3.5 h-3.5" />
+          New Analysis
         </button>
-        <button
-          className="w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-200 hover:bg-neu-highlight"
-          style={{
-            background: '#232939',
-            boxShadow: '2px 2px 5px #141820, -2px -2px 5px #283048',
-          }}
-        >
-          <Bell className="w-4 h-4 text-text-muted" />
-        </button>
+
+        {/* Vertical Divider */}
+        <div className="w-px h-5 bg-white/5 flex-shrink-0 mx-1" />
+
+        {isLoggedIn ? (
+          <>
+            <button
+              onClick={() => navigate('/history')}
+              className="px-3 h-8 rounded-xl flex items-center justify-center gap-1.5 transition-all duration-200 hover:bg-neu-highlight text-xs font-bold text-text-primary"
+              style={{
+                background: '#232939',
+                boxShadow: '2px 2px 5px #141820, -2px -2px 5px #283048',
+              }}
+            >
+              <Clock className="w-3.5 h-3.5 text-accent-cyan" />
+              History
+            </button>
+            <button
+              onClick={handleLogout}
+              className="w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-200 hover:bg-red-500/10"
+              style={{
+                background: '#232939',
+                boxShadow: '2px 2px 5px #141820, -2px -2px 5px #283048',
+              }}
+            >
+              <LogOut className="w-4 h-4 text-red-400" />
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={() => navigate('/login')}
+            className="px-4 h-8 rounded-xl flex items-center justify-center gap-2 transition-all duration-200 text-xs font-bold text-text-primary"
+            style={{
+              background: 'linear-gradient(135deg, #6366F1, #22D3EE)',
+              boxShadow: '0 0 10px rgba(99,102,241,0.3)',
+            }}
+          >
+            <LogIn className="w-3.5 h-3.5" />
+            Sign In
+          </button>
+        )}
+
+        {/* Divider for aesthetic */}
+        <div className="w-px h-5 bg-white/5 flex-shrink-0 mx-1" />
+
         <button
           className="w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-200 hover:bg-neu-highlight"
           style={{

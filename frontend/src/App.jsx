@@ -5,6 +5,8 @@ import LandingPage from './components/LandingPage';
 import Dashboard from './components/Dashboard';
 import AnalyzePage from './pages/AnalyzePage';
 import ReportPage from './components/ReportPage';
+import AuthView from './components/AuthView';
+import History from './pages/History';
 
 export default function App() {
   const location = useLocation();
@@ -36,6 +38,18 @@ export default function App() {
           <Route 
             path="/report/:owner/:repoName" 
             element={<ReportPage />} 
+          />
+
+          {/* Authentication Route */}
+          <Route 
+            path="/login" 
+            element={<AuthView />} 
+          />
+
+          {/* History Route */}
+          <Route 
+            path="/history" 
+            element={<History />} 
           />
         </Routes>
       </AnimatePresence>

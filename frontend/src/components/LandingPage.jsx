@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   GitBranch, Layers, Brain, Route, ArrowRight, AlertCircle,
-  Sparkles,
+  Sparkles, LogOut
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import InteractiveGrid from './InteractiveGrid';
@@ -212,6 +212,14 @@ function AnalyzeInput() {
    LANDING PAGE — main export
 ───────────────────────────────────────────────────────────────────── */
 export default function LandingPage() {
+  const navigate = useNavigate();
+  const isLoggedIn = !!localStorage.getItem('token');
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    window.location.reload();
+  };
+
   const features = [
     {
       icon: Layers,
@@ -237,6 +245,51 @@ export default function LandingPage() {
 
   return (
     <div className="relative pb-24 flex flex-col items-center holographic-grid overflow-hidden">
+      {/* ── Auth Navigation Header ── */}
+      <div className="absolute top-6 right-6 z-50 flex gap-4">
+        {isLoggedIn ? (
+          <>
+            <button
+              onClick={() => navigate('/history')}
+              className="px-5 py-2.5 rounded-xl flex items-center justify-center gap-2.5 transition-all duration-300 hover:scale-105 hover:border-cyan-500/30 text-sm font-bold text-text-primary group"
+              style={{
+                background: '#232939',
+                boxShadow: '4px 4px 10px #141820, -4px -4px 10px #2a3248',
+                border: '1px solid rgba(255,255,255,0.03)',
+              }}
+            >
+              <Route className="w-4 h-4 text-accent-cyan group-hover:animate-pulse" />
+              View History
+            </button>
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2.5 rounded-xl flex items-center justify-center gap-2 transition-all duration-300 hover:scale-105 text-sm font-bold text-red-200 group hover:border-red-500/20"
+              style={{
+                background: 'rgba(239, 68, 68, 0.05)',
+                boxShadow: '4px 4px 10px #141820, -4px -4px 10px #2a3248',
+                border: '1px solid rgba(239, 68, 68, 0.1)',
+              }}
+            >
+              <LogOut className="w-4 h-4 text-red-500" />
+              Logout
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={() => navigate('/login')}
+            className="px-5 py-2.5 rounded-xl flex items-center justify-center gap-2.5 transition-all duration-300 hover:scale-105 hover:border-cyan-500/30 text-sm font-bold text-text-primary group"
+            style={{
+              background: '#232939',
+              boxShadow: '4px 4px 10px #141820, -4px -4px 10px #2a3248',
+              border: '1px solid rgba(255,255,255,0.03)',
+            }}
+          >
+            <Sparkles className="w-4 h-4 text-accent-cyan group-hover:animate-pulse" />
+            Login / Sign Up
+          </button>
+        )}
+      </div>
+
       <InteractiveGrid />
       {/* ── Ambient Orbs ── */}
       <div className="absolute top-0 left-1/4 w-96 h-96 rounded-full opacity-[0.06] blur-[140px] pointer-events-none"

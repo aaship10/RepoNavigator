@@ -1,29 +1,55 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+import asyncio
+import json
+import warnings
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Query as QueryParam
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import networkx as nx
 from pydantic import BaseModel
-import asyncio
+
+# Suppress the deprecation warning for the demo
+warnings.filterwarnings("ignore", category=FutureWarning)
+from typing import List, Optional
+from sqlalchemy.orm import Session
+from fastapi import Depends
 
 # Schemas
 from schemas import AnalyzeRequest, AnalyzeResponse, FileDetailsResponse
 
 # Core Graph & Parsing Logic
 from core.github_fetcher import fetch_repo_files
-from core.parser import extract_dependencies
+from core.parser import extract_dependencies, get_file_functions, get_file_apis
 from core.graph_engine import (
-    build_global_graph, 
-    extract_ego_graph_data, 
+    build_global_graph,
+    extract_ego_graph_data,
     identify_entry_points,
-    get_onboarding_path
+    get_onboarding_path,
 )
 
 # AI & Database Services
-from services.ai_service import generate_file_insights, generate_rag_summary 
-from services.rag_service import answer_global_query, stream_global_query
-from database.chroma_store import store_file_insight
+from services.ai_service import generate_rag_summary 
+from services.rag_service import answer_global_query, stream_global_query, client as groq_client
+from services.evolution_service import calculate_graph_delta, generate_evolution_narrative
+from database.chroma_store import (
+    store_file_insight, 
+    chroma_client, 
+    get_repo_collection_name
+)
 
-app = FastAPI(title="Repo Navigator API")
+# Auth & Database
+from db import Base, engine, get_db
+from models import User, History
+from auth import (
+    get_password_hash, 
+    verify_password, 
+    create_access_token, 
+    get_current_user, 
+    get_current_user_optional
+)
+
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(title="RepoNav API", version="1.0.0")
 
 # Configure CORS
 origins = [
@@ -57,11 +83,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- CRITICAL: CORS Setup ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
-    allow_credentials=True,
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -69,6 +93,14 @@ app.add_middleware(
 # --- IN-MEMORY DATABASE (Hackathon Lifesaver) ---
 SESSION_GRAPHS = {}
 SESSION_FILES = {}
+
+def _get_session(repo_id: str):
+    if repo_id not in SESSION_GRAPHS:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Session '{repo_id}' not found. Run /analyze first."
+        )
+    return SESSION_GRAPHS[repo_id], SESSION_FILES[repo_id]
 
 # --- BACKGROUND INGESTION TASK ---
 async def process_and_store_summaries(repo_id: str, raw_files: dict):
@@ -94,12 +126,66 @@ async def process_and_store_summaries(repo_id: str, raw_files: dict):
     print(f"✅ RAG ingestion complete for {repo_id}!")
 
 
+# --- AUTH & HISTORY SCHEMAS ---
+class UserCreate(BaseModel):
+    email: str
+    password: str
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+# --- AUTH ENDPOINTS ---
+@app.post("/signup", response_model=Token)
+def signup(user: UserCreate, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.email == user.email).first()
+    if db_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    hashed_password = get_password_hash(user.password)
+    new_user = User(email=user.email, hashed_password=hashed_password)
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
+    access_token = create_access_token(data={"sub": new_user.email})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/login", response_model=Token)
+def login(user: UserLogin, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.email == user.email).first()
+    if not db_user or not verify_password(user.password, db_user.hashed_password):
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
+    
+    access_token = create_access_token(data={"sub": db_user.email})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.get("/history")
+def get_user_history(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    history_records = db.query(History).filter(History.user_id == current_user.id).order_by(History.timestamp.desc()).all()
+    return [
+        {
+            "id": h.id,
+            "repo_url": h.repo_url,
+            "repo_name": h.repo_name,
+            "timestamp": h.timestamp,
+        }
+        for h in history_records
+    ]
+
+
 @app.post("/analyze", response_model=AnalyzeResponse)
-async def analyze_repo(request: AnalyzeRequest, background_tasks: BackgroundTasks):
+async def analyze_repo(
+    request: AnalyzeRequest, 
+    background_tasks: BackgroundTasks,
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
     try:
-        print(f"Fetching files for: {request.github_url}...")
-        
-        # 1. Fetch raw code
         files = fetch_repo_files(request.github_url)
         
         # 2. Extract dependencies
@@ -116,9 +202,31 @@ async def analyze_repo(request: AnalyzeRequest, background_tasks: BackgroundTask
         # 5. Get Entry Points
         entry_points = identify_entry_points(G)
         
-        # 6. KICK OFF CHROMADB INGESTION IN THE BACKGROUND!
+        # 6. KICK OFF CHROMADB INGESTION (NO DELETION)
         background_tasks.add_task(process_and_store_summaries, repo_key, files)
         
+        # 7. RECORD HISTORY (If Logged In)
+        if current_user:
+            from datetime import datetime
+            
+            existing_history = db.query(History).filter(
+                History.user_id == current_user.id,
+                History.repo_url == request.github_url
+            ).first()
+
+            if existing_history:
+                # Bump the timestamp so it jumps to the top of the unified history list
+                existing_history.timestamp = datetime.utcnow()
+            else:
+                history_entry = History(
+                    user_id=current_user.id,
+                    repo_url=request.github_url,
+                    repo_name=repo_key
+                )
+                db.add(history_entry)
+                
+            db.commit()
+
         return {
             "status": "success",
             "github_url": request.github_url,
@@ -134,72 +242,98 @@ async def analyze_repo(request: AnalyzeRequest, background_tasks: BackgroundTask
 
 @app.get("/file-details/{repo_id}", response_model=FileDetailsResponse)
 async def get_file_details(repo_id: str, file_path: str):
-    """Called when a user clicks a file in the sidebar"""
+    """Optimized: Fetches insights directly from ChromaDB for zero-latency sidebar"""
     
     if repo_id not in SESSION_GRAPHS:
-        raise HTTPException(status_code=404, detail="Repo not analyzed yet. Please analyze the URL first.")
+        raise HTTPException(status_code=404, detail="Repo not analyzed yet.")
         
     G = SESSION_GRAPHS[repo_id]
-    
-    # 1. Get the Ego Graph data formatted for React Flow
     graph_data = extract_ego_graph_data(G, file_path)
 
-    # 2. Extract specific dependencies for this file
-    file_dependencies = [
-        edge["target"] for edge in graph_data["edges"] 
-        if edge["source"] == file_path
-    ]
-
-    # 3. Fetch directly from local ChromaDB!
-    from database.chroma_store import chroma_client, get_repo_collection_name
-    import json
-    
     try:
         collection_name = get_repo_collection_name(repo_id)
         collection = chroma_client.get_collection(name=collection_name)
-        
-        # We saved the file_path as the exact ID in ChromaDB earlier
         result = collection.get(ids=[file_path])
         
         if result and result['metadatas'] and len(result['metadatas']) > 0:
-            # Extract the massive JSON we saved during ingestion
             saved_json = json.loads(result['metadatas'][0]["full_architectural_profile"])
-            
-            # Format it to match what your React frontend is expecting
             ai_insights = {
                 "summary": saved_json.get("architectural_role", "Role not defined."),
                 "functions": saved_json.get("exposed_interface", {}).get("exported_functions", []),
-                "data_flow": saved_json.get("data_flow", {}).get("transformations", "No data flow tracked.")
+                "functions_used": saved_json.get("dependencies", {}).get("functions_used", []),
+                "data_flow": saved_json.get("data_flow", {}).get("transformations", "No data flow tracked."),
+                "external_apis": saved_json.get("dependencies", {}).get("external_apis", [])
             }
-            print(f"⚡ FAST RETRIEVAL: Loaded {file_path} from local DB in 5ms!")
+
+            # Merge AI purposes into final_functions
+            ai_map = {
+                f["name"].lower().strip(): f.get("purpose", "")
+                for f in ai_insights.get("functions", [])
+            }
+            final_functions = [
+                {
+                    "name": f["name"],
+                    "line": f["line"],
+                    "purpose": ai_map.get(f["name"].lower().strip(), "")
+                }
+                for f in local_functions
+            ]
+
+            print(f"⚡ FAST RETRIEVAL: Loaded {file_path} from local DB.")
         else:
-            raise ValueError("File not yet processed into database.")
+            raise ValueError("Metadata empty.")
             
     except Exception as e:
-        print(f"⚠️ ChromaDB cache miss for {file_path}: {e}")
+        print(f"⚠️ Cache miss for {file_path}: {e}")
         ai_insights = {
-            "summary": "Summary not available. Has the repo finished analyzing?",
+            "summary": "Summary pending background analysis...",
             "functions": [],
+            "functions_used": [],
+            "external_apis": [],
             "data_flow": ""
         }
 
     return {
         "graph": graph_data,
         "ai_insights": ai_insights,
+        "functions": final_functions,
+        "apis": final_apis,
         "onboarding_path": get_onboarding_path(G)
     }
 
 
-# --- THE NEW GLOBAL RAG ENDPOINT ---
+@app.get("/repo-evolution/{repo_id}")
+async def get_repo_evolution(repo_id: str):
+    """Compares current architecture against a mock past state for the timeline slider"""
+    if repo_id not in SESSION_GRAPHS:
+        raise HTTPException(status_code=404, detail="Repo not analyzed.")
+
+    G_current = SESSION_GRAPHS[repo_id]
+    nodes = list(G_current.nodes)
+    
+    G_old = G_current.subgraph(nodes[:-3]) if len(nodes) > 3 else G_current
+
+    delta = calculate_graph_delta(G_old, G_current)
+    narrative = await generate_evolution_narrative(delta, groq_client, "llama-3.3-70b-versatile")
+
+    return {
+        "timeline_summary": narrative,
+        "delta": delta,
+        "snapshots": [
+            {"commit": "baseline", "nodes": len(G_old.nodes), "edges": len(G_old.edges)},
+            {"commit": "current", "nodes": len(G_current.nodes), "edges": len(G_current.edges)}
+        ]
+    }
+
+
 class GlobalQueryRequest(BaseModel):
     query: str
 
 @app.post("/ask-global/{repo_id}")
 async def ask_global_question(repo_id: str, request: GlobalQueryRequest):
-    """The endpoint for the conversational chatbot UI (Streaming version)"""
-    
+    """The main RAG Chatbot endpoint (Streaming version)"""
     if repo_id not in SESSION_FILES or repo_id not in SESSION_GRAPHS:
-        raise HTTPException(status_code=404, detail="Repository code not found in memory. Please click 'Analyze' first.")
+        raise HTTPException(status_code=404, detail="Repository not found.")
         
     # Create the generator for StreamingResponse
     async def event_generator():

@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import LoadingTransition from '../components/LoadingTransition';
 import { analyzeRepoStream } from '../services/api';
+import { motion, AnimatePresence } from 'framer-motion';
+import { AlertTriangle } from 'lucide-react';
 
 export default function AnalyzePage({ setApiData }) {
   const [searchParams] = useSearchParams();
@@ -11,6 +13,11 @@ export default function AnalyzePage({ setApiData }) {
   const [progress, setProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState('');
   const [error, setError] = useState(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(true);
+
+  useEffect(() => {
+    setIsLoggedIn(!!localStorage.getItem('token'));
+  }, []);
 
   const analysisDataRef = useRef(null);
 
@@ -59,10 +66,35 @@ export default function AnalyzePage({ setApiData }) {
   }
 
   return (
-    <LoadingTransition 
-      progress={progress} 
-      statusMessage={statusMessage} 
-      onComplete={handleComplete}
-    />
+    <div className="relative h-screen w-screen bg-neu-bg">
+      <AnimatePresence>
+        {!isLoggedIn && !error && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, x: '-50%' }}
+            animate={{ opacity: 1, y: 0, x: '-50%' }}
+            exit={{ opacity: 0, y: -20, x: '-50%' }}
+            className="absolute top-8 left-1/2 z-50 flex items-center gap-3 px-5 py-3 rounded-2xl"
+            style={{
+              background: 'rgba(30,35,46,0.9)',
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(251, 191, 36, 0.2)',
+              boxShadow: '0 8px 30px rgba(0,0,0,0.5)',
+            }}
+          >
+            <AlertTriangle className="w-5 h-5 text-yellow-500" />
+            <div>
+              <p className="text-sm font-bold text-gray-200">Not Logged In</p>
+              <p className="text-[11px] text-gray-400">This analysis will not be saved to your history.</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <LoadingTransition 
+        progress={progress} 
+        statusMessage={statusMessage} 
+        onComplete={handleComplete}
+      />
+    </div>
   );
 }

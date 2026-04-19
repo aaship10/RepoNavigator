@@ -13,9 +13,15 @@ export async function analyzeRepoStream(githubUrl, onProgress) {
   // Mock initial progress
   onProgress?.({ value: 10, message: 'Contacting server...' });
 
+  const headers = { 'Content-Type': 'application/json' };
+  const token = localStorage.getItem('token');
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   const response = await fetch(`${BASE_URL}/analyze`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(payload),
   });
 
@@ -74,6 +80,55 @@ export async function fetchFileDetails(repoId, filePath) {
     console.error("🔥 [api.js] Caught error in fetchFileDetails:", err);
     throw err;
   }
+}
+
+/**
+ * AUTHENTICATION & HISTORY
+ */
+
+export async function signupUser(email, password) {
+  const response = await fetch(`${BASE_URL}/signup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Signup failed' }));
+    throw new Error(err.detail);
+  }
+  return response.json();
+}
+
+export async function loginUser(email, password) {
+  const response = await fetch(`${BASE_URL}/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Login failed' }));
+    throw new Error(err.detail);
+  }
+  return response.json();
+}
+
+export async function fetchHistory() {
+  const token = localStorage.getItem('token');
+  if (!token) throw new Error('No authentication token found');
+
+  const response = await fetch(`${BASE_URL}/history`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+  });
+  
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to fetch history' }));
+    throw new Error(err.detail);
+  }
+  return response.json();
 }
 /**
  * Streams a global architectural query response from the backend.

@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useEffect } from 'react';
-import { X, AlertTriangle, ArrowDownRight, ArrowUpRight, Zap, Brain, Shield, Loader2, RefreshCw } from 'lucide-react';
+import { X, AlertTriangle, ArrowDownRight, ArrowUpRight, Zap, Brain, Shield, Loader2, RefreshCw, Globe } from 'lucide-react';
 import { mockAIData } from '../../data/mockData';
 import { fetchFileDetails } from '../../services/api';
 
@@ -301,6 +301,24 @@ export default function AIPanel({ selectedNode, repoId, onClose }) {
                 </motion.div>
               )}
 
+              {/* 2.5 Key Functions Used */}
+              {typeof data.summary === 'object' && (
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
+                  <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.2em] mb-3 flex items-center gap-2">
+                    <ArrowUpRight className="w-3 h-3 text-orange-400/70" />
+                    External Invocations
+                  </h4>
+                  <div className="text-[11px] text-gray-400 leading-relaxed p-4 rounded-2xl border border-white/5" 
+                       style={{ background: 'rgba(251, 146, 60, 0.03)', boxShadow: 'inset 2px 2px 5px rgba(0,0,0,0.2)' }}>
+                    {data.summary.functions_used && data.summary.functions_used.length > 0 ? (
+                      <SafeRender content={data.summary.functions_used} label="Invoke" />
+                    ) : (
+                      <p className="opacity-40 italic">No external functions invoked.</p>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+
               {/* 3. Data Flow */}
               {typeof data.summary === 'object' && data.summary.data_flow && (
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
@@ -310,6 +328,23 @@ export default function AIPanel({ selectedNode, repoId, onClose }) {
                   </h4>
                   <div className="text-sm text-text-secondary leading-relaxed p-4 rounded-xl border border-white/5" style={{ background: 'rgba(34, 211, 238, 0.03)' }}>
                     <SafeRender content={data.summary.data_flow} label="Step" />
+                  </div>
+                </motion.div>
+              )}
+
+              {/* 4. External APIs */}
+              {typeof data.summary === 'object' && (
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
+                  <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <Globe className="w-3.5 h-3.5 text-accent-indigo" />
+                    External APIs
+                  </h4>
+                  <div className="text-sm text-text-secondary leading-relaxed p-4 rounded-xl border border-white/5" style={{ background: 'rgba(99, 102, 241, 0.03)' }}>
+                    {data.summary.external_apis && data.summary.external_apis.length > 0 ? (
+                      <SafeRender content={data.summary.external_apis} label="API" />
+                    ) : (
+                      <p className="opacity-40 italic text-[11px]">No external APIs detected in this file.</p>
+                    )}
                   </div>
                 </motion.div>
               )}
