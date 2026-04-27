@@ -4,6 +4,7 @@ import { AnimatePresence } from 'framer-motion';
 import LandingPage from './components/LandingPage';
 import Dashboard from './components/Dashboard';
 import AnalyzePage from './pages/AnalyzePage';
+import ReportPage from './components/ReportPage';
 import AuthView from './components/AuthView';
 import History from './pages/History';
 
@@ -31,6 +32,12 @@ export default function App() {
           <Route 
             path="/repo/:repoId" 
             element={<Dashboard apiData={apiData} />} 
+          />
+
+          {/* Report Route */}
+          <Route 
+            path="/report/:owner/:repoName" 
+            element={<ReportPage />} 
           />
 
           {/* Authentication Route */}
