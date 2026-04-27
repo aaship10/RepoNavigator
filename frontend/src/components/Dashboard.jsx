@@ -25,6 +25,7 @@ export default function Dashboard({ apiData }) {
   const [selectedNode, setSelectedNode] = useState(null);
   const [showAIPanel, setShowAIPanel] = useState(false);
   const [currentFolder, setCurrentFolder] = useState('');
+  const [onboardingPath, setOnboardingPath] = useState(apiData?.onboarding_path || []);
 
   // Global Query Streaming State
   const [globalQueryText, setGlobalQueryText] = useState('');
@@ -35,6 +36,12 @@ export default function Dashboard({ apiData }) {
     setSelectedNode(nodeId);
     setShowAIPanel(!!nodeId);
     if (nodeId) setShowGlobalChat(false); // Close chat if a file is selected
+  }, []);
+
+  const handlePathUpdate = useCallback((newPath) => {
+    if (newPath && newPath.length > 0) {
+      setOnboardingPath(newPath);
+    }
   }, []);
 
   const handleMatrixClick = useCallback((cellData) => {
@@ -136,6 +143,7 @@ export default function Dashboard({ apiData }) {
             {/* Bottom Onboarding Strip — 15% height */}
             <div className="flex-shrink-0" style={{ height: '15%', minHeight: '120px' }}>
               <OnboardingStrip 
+                path={onboardingPath}
                 onSelectFile={handleNodeClick} 
               />
             </div>
@@ -156,6 +164,7 @@ export default function Dashboard({ apiData }) {
                   selectedNode={selectedNode}
                   repoId={apiData?.repo_id || repoId || 'mock'}
                   onClose={handleCloseAI}
+                  onPathUpdate={handlePathUpdate}
                 />
               </motion.div>
             )}

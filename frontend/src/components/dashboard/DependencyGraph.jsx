@@ -116,16 +116,35 @@ function getDirectFiles(prefix, fileTree) {
 
 function buildMatrixData(subFolders, prefix, edges, fileTree) {
   const map = {};
-  subFolders.forEach(f => { map[f] = {}; subFolders.forEach(t => { map[f][t] = 0; }); });
+  // Include (root) bucket for files directly in this folder + all subfolders
+  const allBuckets = ['(root)', ...subFolders];
+  allBuckets.forEach(f => { 
+    map[f] = {}; 
+    allBuckets.forEach(t => { map[f][t] = 0; }); 
+  });
+
+  // Helper: which bucket does a file belong to under the current prefix?
+  function getBucket(filePath) {
+    const rel = relPath(filePath, prefix);
+    // If prefix is not matched at all, it's not relevant to this view
+    if (prefix !== '' && !filePath.startsWith(prefix + '/')) return null;
+    
+    // If it's the exact same as prefix, or has no slash after prefix, it's a root file
+    if (!rel.includes('/')) return '(root)';
+    
+    // Otherwise it's in a subfolder
+    return rel.split('/')[0];
+  }
 
   (edges || []).forEach(([src, tgt]) => {
-    const srcFiles = filesUnder(prefix, [src]);
-    const tgtFiles = filesUnder(prefix, [tgt]);
-    if (srcFiles.length === 0 || tgtFiles.length === 0) return;
-
-    const sf = relPath(src, prefix).split('/')[0];
-    const tf = relPath(tgt, prefix).split('/')[0];
-    if (sf !== tf && map[sf] && map[sf][tf] !== undefined) map[sf][tf]++;
+    const sf = getBucket(src);
+    const tf = getBucket(tgt);
+    
+    // Count edges between buckets (including root <-> subfolder and root <-> root)
+    if (sf && tf && map[sf] && map[sf][tf] !== undefined) {
+      if (sf === tf && sf !== '(root)') return; // Ignore internal subfolder edges for matrix view (usually diagonal is separate)
+      map[sf][tf]++;
+    }
   });
   return map;
 }
@@ -504,17 +523,20 @@ function MacroMatrix({ subFolders, matrixData, onCellClick, onAxisClick }) {
   const [hoveredRow, setHoveredRow] = useState(null);
   const [hoveredCol, setHoveredCol] = useState(null);
 
+  const allBuckets = useMemo(() => ['(root)', ...subFolders], [subFolders]);
+
   const maxVal = useMemo(() => {
     let m = 1;
-    subFolders.forEach(r => subFolders.forEach(c => { if ((matrixData[r]?.[c] || 0) > m) m = matrixData[r][c]; }));
+    allBuckets.forEach(r => allBuckets.forEach(c => { if ((matrixData[r]?.[c] || 0) > m) m = matrixData[r][c]; }));
     return m;
-  }, [subFolders, matrixData]);
+  }, [allBuckets, matrixData]);
 
-  if (subFolders.length === 0) {
+  if (allBuckets.length === 0) {
     return (
-      <div className="w-full h-full flex items-center justify-center">
-        <p className="text-xs font-mono text-gray-600 uppercase tracking-widest">
-          No sub-folders to display.
+      <div className="w-full h-full flex flex-col items-center justify-center gap-3">
+        <Grid3X3 size={32} strokeWidth={1} className="text-gray-700 opacity-50" />
+        <p className="text-xs font-mono text-gray-600 uppercase tracking-widest text-center">
+          Matrix view requires folders or files
         </p>
       </div>
     );
@@ -528,54 +550,63 @@ function MacroMatrix({ subFolders, matrixData, onCellClick, onAxisClick }) {
 
       <div className="flex flex-col">
         <div className="flex items-end" style={{ marginLeft: CELL_SIZE + CELL_GAP + 4, gap: CELL_GAP, marginBottom: CELL_GAP }}>
-          {subFolders.map(col => (
-            <AxisButton key={`h-${col}`} label={col}
-              color={folderColor(col, subFolders)}
+          {allBuckets.map(col => (
+            <AxisButton key={`h-${col}`} label={col === '(root)' ? 'files' : col}
+              color={col === '(root)' ? '#94A3B8' : folderColor(col, subFolders)}
               isHighlighted={hoveredCol === col}
               onClick={() => onAxisClick(col)} />
           ))}
         </div>
-        {subFolders.map(row => (
+        {allBuckets.map(row => (
           <div key={`row-${row}`} className="flex items-center" style={{ gap: CELL_GAP, marginBottom: CELL_GAP }}>
-            <AxisButton label={row} color={folderColor(row, subFolders)}
+            <AxisButton label={row === '(root)' ? 'files' : row} 
+              color={row === '(root)' ? '#94A3B8' : folderColor(row, subFolders)}
               isHighlighted={hoveredRow === row} isRow onClick={() => onAxisClick(row)} />
-            {subFolders.map(col => {
+            {allBuckets.map(col => {
               const count    = matrixData[row]?.[col] || 0;
-              const isActive = count > 0 && row !== col;
-              const isDiag   = row === col;
-              const color    = folderColor(col, subFolders);
-              const intensity = isActive ? Math.max(0.25, count / maxVal) : 0;
+              const isActive = count > 0;
+              const isDiag   = row === col && row !== '(root)';
+              const color    = col === '(root)' ? '#94A3B8' : folderColor(col, subFolders);
+              const intensity = isActive ? Math.max(0.2, count / maxVal) : 0;
+              
               return (
                 <motion.div key={`${row}-${col}`}
                   onHoverStart={() => { setHoveredRow(row); setHoveredCol(col); }}
                   onHoverEnd  ={() => { setHoveredRow(null); setHoveredCol(null); }}
-                  onClick={() => !isDiag && onCellClick(row, col, isActive)}
-                  whileHover={isDiag ? {} : { scale: 1.1, zIndex: 10 }}
-                  className="rounded-xl relative flex items-center justify-center"
+                  onClick={() => onCellClick(row, col, isActive)}
+                  whileHover={isActive ? { scale: 1.1, zIndex: 10 } : {}}
+                  className="rounded-xl relative flex items-center justify-center group"
                   style={{
                     width: CELL_SIZE, height: CELL_SIZE,
-                    cursor: isDiag ? 'default' : 'pointer',
+                    cursor: isActive ? 'pointer' : 'default',
                     background: '#1E232E',
-                    boxShadow: isDiag
-                      ? 'inset 3px 3px 7px #141820, inset -3px -3px 7px #283048'
-                      : isActive
-                        ? '6px 6px 14px #141820, -6px -6px 14px #2a3248'
-                        : 'inset 4px 4px 8px #141820, inset -4px -4px 8px #283048',
+                    boxShadow: isActive
+                      ? '6px 6px 14px #141820, -6px -6px 14px #2a3248'
+                      : 'inset 4px 4px 8px #141820, inset -4px -4px 8px #283048',
                     border: isActive
-                      ? `1px solid ${color}${Math.round(intensity * 70).toString(16).padStart(2,'0')}`
+                      ? `1px solid ${color}${Math.round(intensity * 100).toString(16).padStart(2,'0')}`
                       : '1px solid transparent',
-                    opacity: isDiag ? 0.25 : 1,
+                    opacity: isDiag ? 0.2 : 1,
                     transition: 'box-shadow 0.3s ease, border 0.3s ease',
                   }}
                 >
                   {isActive && (
                     <>
-                      <div className="w-2 h-2 rounded-full absolute" style={{
-                        background: color, opacity: 0.4 + intensity * 0.6,
-                        boxShadow: `0 0 ${8 + intensity * 14}px ${color}, 0 0 ${20 + intensity * 20}px ${color}40`,
-                      }} />
-                      <span className="absolute bottom-1 right-1.5 text-[7px] font-mono"
-                        style={{ color, opacity: 0.5 }}>{count}</span>
+                      <div className="w-6 h-6 rounded-lg flex items-center justify-center relative overflow-hidden" 
+                        style={{
+                          background: `${color}15`,
+                          border: `1px solid ${color}44`,
+                          boxShadow: `0 0 ${10 + intensity * 15}px ${color}33`,
+                        }}>
+                        <div className="absolute inset-0 opacity-20" style={{ background: color }} />
+                        <span className="relative text-[11px] font-bold font-mono" style={{ color }}>
+                          {count}
+                        </span>
+                      </div>
+                      
+                      {/* Sub-indicator dot for aesthetic flavor */}
+                      <div className="absolute top-1.5 right-1.5 w-1 h-1 rounded-full" 
+                        style={{ background: color, boxShadow: `0 0 4px ${color}` }} />
                     </>
                   )}
                   {isDiag && <div className="w-1 h-1 rounded-full bg-gray-700" />}

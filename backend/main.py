@@ -234,7 +234,8 @@ async def analyze_repo(
             "total_files": len(files),
             "entry_points": entry_points,
             "file_tree": list(files.keys()),
-            "edges": list(G.edges())
+            "edges": list(G.edges()),
+            "onboarding_path": get_onboarding_path(G)
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -249,6 +250,11 @@ async def get_file_details(repo_id: str, file_path: str):
         
     G = SESSION_GRAPHS[repo_id]
     graph_data = extract_ego_graph_data(G, file_path)
+    
+    # 2. Extract AST properties locally to merge with AI results later
+    file_content = SESSION_FILES.get(repo_id, {}).get(file_path, "")
+    local_functions = get_file_functions(file_path, file_content)
+    final_apis = get_file_apis(file_path, file_content)
 
     try:
         collection_name = get_repo_collection_name(repo_id)
@@ -298,7 +304,7 @@ async def get_file_details(repo_id: str, file_path: str):
         "ai_insights": ai_insights,
         "functions": final_functions,
         "apis": final_apis,
-        "onboarding_path": get_onboarding_path(G)
+        "onboarding_path": get_onboarding_path(G, file_path)
     }
 
 

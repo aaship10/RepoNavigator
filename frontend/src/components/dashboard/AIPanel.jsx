@@ -125,7 +125,7 @@ function SafeRender({ content, label = "Item" }) {
   return <p>{String(content)}</p>;
 }
 
-export default function AIPanel({ selectedNode, repoId, onClose }) {
+export default function AIPanel({ selectedNode, repoId, onClose, onPathUpdate }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -161,6 +161,11 @@ export default function AIPanel({ selectedNode, repoId, onClose }) {
           summary: response.ai_insights || mockFallback.summary,
           graph: response.graph || { edges: [] }
         });
+
+        // Bubble the per-file onboarding path up to Dashboard
+        if (response.onboarding_path && response.onboarding_path.length > 0) {
+          onPathUpdate?.(response.onboarding_path);
+        }
       } catch (err) {
         console.error("❌ [AIPanel.jsx] Failed to fetch AI insights:", err);
         setError("AI analysis unavailable for this file.");
