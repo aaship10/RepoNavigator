@@ -63,18 +63,25 @@ def extract_ego_graph_data(G: nx.DiGraph, selected_file: str) -> Dict[str, Any]:
         
     return {"nodes": nodes, "edges": edges}
 
-def get_onboarding_path(G: nx.DiGraph, limit: int = 10) -> List[str]:
+def get_onboarding_path(G: nx.DiGraph, selected_file: str = None, limit: int = 10) -> List[str]:
     """
     Generates a recommended reading order.
+    If selected_file is provided, gets the reading order tailored to understand THAT file.
     Attempts a Topological Sort, with a safe fallback for circular imports.
     """
     if len(G.nodes) == 0:
         return []
 
     try:
-        # A perfect Directed Acyclic Graph (DAG) can be sorted logically
-        # from foundation to complex logic.
-        path = list(nx.topological_sort(G))
+        # If a specific file is selected, only look at what it depends on!
+        if selected_file and selected_file in G:
+            descendants = nx.descendants(G, selected_file)
+            nodes_to_sort = descendants.union({selected_file})
+            subG = G.subgraph(nodes_to_sort)
+        else:
+            subG = G
+            
+        path = list(nx.topological_sort(subG))
         # Return the bottom foundational files first, or reverse it based on preference
         return list(reversed(path))[:limit] 
         
@@ -82,7 +89,8 @@ def get_onboarding_path(G: nx.DiGraph, limit: int = 10) -> List[str]:
         # HACKATHON LIFESAVER: Circular dependencies detected!
         # Fallback: Sort files by their out-degree (files that import the least).
         # These are usually standalone utilities or config files. Good starting points.
-        sorted_nodes = sorted(G.nodes(), key=lambda n: G.out_degree(n))
+        target_nodes = list(subG.nodes()) if 'subG' in locals() else list(G.nodes())
+        sorted_nodes = sorted(target_nodes, key=lambda n: G.out_degree(n))
         return sorted_nodes[:limit]
 
 def identify_entry_points(G: nx.DiGraph) -> List[str]:

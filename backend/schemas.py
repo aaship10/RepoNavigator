@@ -17,7 +17,8 @@ class AnalyzeResponse(BaseModel):
     total_files: int
     entry_points: List[str]
     file_tree: List[str]
-    edges: List[List[str]]  # [[source, target], ...] — full dependency edge list
+    edges: List[List[str]]  # [[source, target], ...]
+    onboarding_path: List[str] = []
 
 # ==========================================
 # 3. GRAPH DATA MODELS (Matches graph_engine.py & React Flow)

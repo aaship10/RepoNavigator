@@ -10,3 +10,7 @@ tree-sitter-python
 tree-sitter-javascript
 groq
 chromadb
+sqlalchemy
+psycopg2
+passlib
+python-jose

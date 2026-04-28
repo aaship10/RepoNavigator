@@ -10,7 +10,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY is missing from .env file")
 
-# Initialize the new SDK client properly
+# Initialize the NEW client globally
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 async def generate_file_insights(file_path: str, file_content: str, dependencies: list) -> dict:
@@ -190,7 +190,7 @@ async def generate_rag_summary(file_path: str, file_content: str) -> dict:
     
     try:
         response = await client.aio.models.generate_content(
-            model='gemini-flash-latest',
+            model='gemini-2.5-flash',
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.1,
