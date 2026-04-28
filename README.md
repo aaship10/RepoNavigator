@@ -4,8 +4,6 @@
 
 RepoNavigator is a cutting-edge scrollytelling visualization tool that converts static file trees into dynamic, animated architectural node graphs. Watch your repository structure unfold as users scroll through an immersive, DOM-based animation experience that reveals connections, data flows, and system architecture in real-time.
 
-![Status](https://img.shields.io/badge/status-active-brightgreen) ![License](https://img.shields.io/badge/license-MIT-blue) ![JavaScript](https://img.shields.io/badge/language-JavaScript-yellow)
-
 ---
 
 ## 🎯 Problem Statement
@@ -98,29 +96,6 @@ cd frontend && npm run dev
 
 # Terminal 2 - Backend
 cd backend && python main.py
-```
-
----
-
-## 📁 Project Structure
-
-```
-RepoNavigator/
-├── frontend/                  # React + Vite application
-│   ├── src/
-│   │   ├── components/       # Reusable React components
-│   │   ├── hooks/            # Custom scroll animation hooks
-│   │   ├── animations/       # Animation sequences and configurations
-│   │   └── App.jsx           # Main application component
-│   ├── package.json
-│   └── vite.config.js
-│
-├── backend/                   # FastAPI backend service
-│   ├── models/               # ML/GNN models for architecture analysis
-│   ├── api/                  # API endpoints
-│   └── main.py               # Server entry point
-│
-└── skill.md                   # Detailed architectural workflow documentation
 ```
 
 ---
@@ -233,7 +208,7 @@ The backend integrates GNN (Graph Neural Networks) for:
 
 ---
 
-## 🤝 Contributing
+<!-- ## 🤝 Contributing
 
 We welcome contributions! Here's how you can help:
 
@@ -250,13 +225,8 @@ We welcome contributions! Here's how you can help:
 - Test animations across different scroll speeds
 - Update documentation for new features
 
----
+--- -->
 
-## 📝 License
-
-This project is licensed under the **MIT License** - see the LICENSE file for details.
-
----
 
 ## 🎯 Roadmap
 
@@ -282,15 +252,15 @@ This project is licensed under the **MIT License** - see the LICENSE file for de
 
 ---
 
-## 📞 Support & Contact
+<!-- ## 📞 Support & Contact
 
 - 📧 **Email**: [your-email@example.com]
 - 💬 **GitHub Issues**: [Report bugs and request features](https://github.com/aaship10/RepoNavigator/issues)
 - 🐙 **GitHub Discussions**: [Join our community](https://github.com/aaship10/RepoNavigator/discussions)
 
----
+--- -->
 
-## 🌟 Show Your Support
+<!-- ## 🌟 Show Your Support
 
 If you find RepoNavigator helpful, please consider:
 - ⭐ Starring this repository
@@ -298,8 +268,8 @@ If you find RepoNavigator helpful, please consider:
 - 💬 Providing feedback and suggestions
 - 🤝 Contributing to the project
 
----
+--- -->
 
-**Made with ❤️ by [aaship10](https://github.com/aaship10)**
+**Made with ❤️ by [aaship10](https://github.com/aaship10), [ArnavJoshi06](https://github.com/ArnavJoshi06), [Pushkar-K26](https://github.com/Pushkar-K26), [Raman-736](https://github.com/Raman-736)**
 
 *RepoNavigator: Because your code deserves to be seen, not just read.*
