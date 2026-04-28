@@ -11,6 +11,8 @@ tree-sitter-javascript
 groq
 chromadb
 sqlalchemy
-psycopg2
-passlib
+psycopg2-binary
+passlib[bcrypt]==1.7.4
+bcrypt==4.1.2
 python-jose
+protobuf==4.25.3
