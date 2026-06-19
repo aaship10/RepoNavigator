@@ -1,21 +1,20 @@
 import os
 import json
-from google import genai
-from google.genai import types
+from groq import AsyncGroq
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if not GEMINI_API_KEY:
-    raise ValueError("GEMINI_API_KEY is missing from .env file")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+if not GROQ_API_KEY:
+    raise ValueError("GROQ_API_KEY is missing from .env file")
 
-# Initialize the NEW client globally
-client = genai.Client(api_key=GEMINI_API_KEY)
+# Initialize the Groq client globally
+client = AsyncGroq(api_key=GROQ_API_KEY)
 
 async def generate_file_insights(file_path: str, file_content: str, dependencies: list) -> dict:
     """
-    Sends file context to Gemini 2.5 Flash to extract a quick summary.
+    Sends file context to Groq to extract a quick summary.
     Used strictly for the real-time React UI sidebar when a node is clicked.
     """
     prompt = f"""
@@ -36,17 +35,15 @@ async def generate_file_insights(file_path: str, file_content: str, dependencies
     }}
     """
     try:
-        response = await client.aio.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.1,
-                response_mime_type="application/json",
-            )
+        response = await client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="llama-3.1-8b-instant",
+            response_format={"type": "json_object"},
+            temperature=0.1
         )
-        return json.loads(response.text)
+        return json.loads(response.choices[0].message.content)
     except Exception as e:
-        print(f"Gemini UI Insights Error for {file_path}: {e}")
+        print(f"Groq UI Insights Error for {file_path}: {e}")
         return {
             "summary": "AI summary currently unavailable.",
             "functions": [],
@@ -94,112 +91,67 @@ async def generate_rag_summary(file_path: str, file_content: str) -> dict:
       "architectural_role": "One sentence: What is the single responsibility of this file in the overall system?",
 
       "primary_responsibilities": [
-        "Specific responsibility 1 (e.g., 'Validates incoming JWT tokens on protected routes')",
-        "Specific responsibility 2",
-        "Specific responsibility 3"
+        "Specific responsibility 1",
+        "Specific responsibility 2"
       ],
 
       "exposed_interface": {{
         "exported_functions": [
           {{
             "name": "functionName",
-            "signature": "functionName(param1: Type, param2: Type) → ReturnType",
+            "signature": "functionName(param1: Type)",
             "purpose": "What does this function DO and WHY would another file call it?"
           }}
         ],
-        "exported_classes": [
-          {{
-            "name": "ClassName",
-            "purpose": "What architectural problem does this class solve?",
-            "key_methods": ["method1()", "method2()"]
-          }}
-        ],
-        "exported_constants_or_configs": [
-          {{
-            "name": "CONSTANT_NAME",
-            "purpose": "What does this config value control system-wide?"
-          }}
-        ]
+        "exported_classes": [],
+        "exported_constants_or_configs": []
       }},
 
       "dependencies": {{
-        "internal_imports": [
-          {{
-            "path": "relative/path/to/module",
-            "why": "What capability does this file borrow from that module?"
-          }}
-        ],
-        "external_packages": [
-          {{
-            "package": "package-name",
-            "why": "What specific feature of this package is used here?"
-          }}
-        ],
-        "external_apis": [
-          {{
-            "name": "API Name",
-            "purpose": "Why it is called (Detect any third-party or external APIs called by the code e.g., Stripe, AWS, external HTTP requests). If none, leave empty."
-          }}
-        ],
-        "functions_used": [
-          {{
-            "name": "Function Name",
-            "purpose": "What this function does and why it is called"
-          }}
-        ]
+        "internal_imports": [],
+        "external_packages": [],
+        "external_apis": [],
+        "functions_used": []
       }},
 
       "data_flow": {{
-        "inputs": "What data enters this file? From where? In what shape?",
-        "transformations": "What does this file DO to that data? Describe the core logic in plain English.",
-        "outputs": "What data leaves this file? To where? In what shape?"
+        "inputs": "What data enters this file?",
+        "transformations": "What does this file DO to that data?",
+        "outputs": "What data leaves this file?"
       }},
 
-      "state_management": "Does this file hold state (variables, caches, DB connections, sessions)? Describe it. Set to null if stateless.",
+      "state_management": "Does this file hold state? Describe it. Set to null if stateless.",
 
-      "error_handling_strategy": "How does this file handle failures? Does it throw, return error objects, call next(err), log silently? Be specific.",
+      "error_handling_strategy": "How does this file handle failures?",
 
       "side_effects": [
-        "Any database writes, external API calls, file system operations, event emissions, or global mutations this file causes"
+        "Any database writes, external API calls, or global mutations this file causes"
       ],
 
       "searchable_concepts": [
-        "A flat list of 10-20 engineering keywords and phrases that describe what this file does.",
-        "Examples: JWT validation, middleware chain, bcrypt hashing, rate limiting, database connection pooling,",
-        "REST endpoint registration, session persistence, CORS configuration, tree traversal, event emitter pattern"
+        "A flat list of 10-20 engineering keywords and phrases that describe what this file does."
       ],
 
-      "cross_cutting_concerns": "Does this file implement logging, auth, caching, error handling, or validation that affects the WHOLE system? Describe it.",
+      "cross_cutting_concerns": "Does this file implement logging, auth, caching? Describe it.",
 
       "potential_query_matches": [
-        "Write 5 example natural-language questions a developer might ask that this file's content can answer.",
-        "Example: 'How are user passwords stored?', 'What protects private API routes?'"
+        "Write 5 example natural-language questions a developer might ask that this file's content can answer."
       ]
     }}
 
-    ════════════════════════════════════════
-    QUALITY RULES
-    ════════════════════════════════════════
-
-    1. Be SPECIFIC. Not "handles authentication" → "verifies Bearer tokens using jsonwebtoken's verify() against the JWT_SECRET env variable and attaches decoded user payload to req.user"
-    2. Every exported function must have a purpose written as if explaining it to a developer who has NEVER seen this codebase.
-    3. The searchable_concepts array is your most important RAG signal. Pack it with every architectural keyword, design pattern, and technology verb you can extract.
-    4. potential_query_matches must be written in natural developer language — the exact phrasing a developer would type into a search box.
-    5. Return ONLY valid JSON. No markdown, no preamble, no explanation outside the JSON.
+    Return ONLY valid JSON. No markdown, no preamble, no explanation outside the JSON.
     """
     
     try:
-        response = await client.aio.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.1,
-                response_mime_type="application/json",
-            )
+        response = await client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="llama-3.1-8b-instant", # Highly reliable Groq model
+            response_format={"type": "json_object"},
+            temperature=0.1
         )
-        return json.loads(response.text)
+        return json.loads(response.choices[0].message.content)
     except Exception as e:
-        print(f"Gemini RAG Ingestion Error for {file_path}: {e}")
+        print(f"Groq RAG Ingestion Error for {file_path}: {e}")
         # Safe fallback structure to prevent ChromaDB insertion from failing entirely
         return {
             "file_path": file_path,

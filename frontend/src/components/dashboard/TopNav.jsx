@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+// eslint-disable-next-line no-unused-vars
 import { motion } from 'framer-motion';
 import { Search, GitBranch, Sparkles, Settings, Bell, LogIn, LogOut, Clock, Plus } from 'lucide-react';
 

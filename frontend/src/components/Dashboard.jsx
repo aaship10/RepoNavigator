@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+// eslint-disable-next-line no-unused-vars
 import { motion, AnimatePresence } from 'framer-motion';
 import TopNav from './dashboard/TopNav';
 import FileSidebar from './dashboard/FileSidebar';

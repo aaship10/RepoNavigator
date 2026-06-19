@@ -126,7 +126,18 @@ function TreeItem({ item, depth = 0, onSelectFile, onSelectFolder, selectedFile,
               : <Folder className="w-3.5 h-3.5 text-gray-600 opacity-70" />
             }
           </div>
-          <span className={`truncate font-medium transition-colors ${shouldExpand ? 'text-gray-200' : 'text-gray-500 group-hover:text-gray-300'}`}>
+          <span 
+            className={`truncate font-medium transition-colors ${shouldExpand ? 'text-gray-200' : 'text-gray-500 group-hover:text-gray-300'}`}
+            title={item.name} // 👈 Tooltip for folders too
+            style={{ display: 'block',
+                     overflow: 'hidden',
+                     textOverflow: 'ellipsis',
+                     whiteSpace: 'nowrap',
+                     direction: 'ltr', // Switch this back to LTR
+                     textAlign: 'left',
+                     minWidth: '0' 
+                  }}
+          >
             {item.name}
           </span>
         </button>
@@ -185,7 +196,18 @@ function TreeItem({ item, depth = 0, onSelectFile, onSelectFolder, selectedFile,
       <div className="flex-shrink-0 flex items-center justify-center w-4 h-4">
         {iconMap[item.icon] || <FileCode2 className="w-3.5 h-3.5 text-gray-600" />}
       </div>
-      <span className={`truncate font-mono transition-colors ${isSelected ? 'text-cyan-400 font-bold' : 'text-gray-500 group-hover:text-gray-300'}`}>
+      <span 
+        className={`truncate font-mono transition-colors ${isSelected ? 'text-cyan-400 font-bold' : 'text-gray-500 group-hover:text-gray-300'}`}
+        title={item.id} // 👈 Full path tooltip
+        style={{ display: 'block',
+                 overflow: 'hidden',
+                 textOverflow: 'ellipsis',
+                 whiteSpace: 'nowrap',
+                 direction: 'ltr', // Standard Left-To-Right reading
+                 textAlign: 'left',
+                 minWidth: '0' 
+              }}
+      >
         {item.name}
       </span>
       <div className="ml-auto flex-shrink-0">

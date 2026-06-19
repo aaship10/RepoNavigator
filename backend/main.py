@@ -1,3 +1,9 @@
+import os
+# 🟢 Kill ChromaDB Telemetry at the OS level before anything else loads
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
+os.environ["CHROMA_TELEMETRY"] = "False"
+
+
 import asyncio
 import json
 import warnings
@@ -6,12 +12,21 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import networkx as nx
 from pydantic import BaseModel
-__import__('pysqlite3')
-import sys
-sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+# Initialize the chunker for massive files (fixes 413 errors)
+# 4000 characters is roughly 1000 tokens. 
+# The overlap ensures we don't accidentally cut a function cleanly in half.
+code_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=4000, 
+    chunk_overlap=200, 
+    separators=["\nclass ", "\ndef ", "\n\n", "\n", " ", ""]
+)
 
 # Suppress the deprecation warning for the demo
 warnings.filterwarnings("ignore", category=FutureWarning)
+
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from fastapi import Depends
@@ -32,7 +47,7 @@ from core.graph_engine import (
 # AI & Database Services
 from services.ai_service import generate_rag_summary 
 from services.rag_service import answer_global_query, stream_global_query, client as groq_client
-from services.evolution_service import calculate_graph_delta, generate_evolution_narrative
+from services.evolution_service import calculate_graph_delta, get_or_generate_evolution
 from database.chroma_store import (
     store_file_insight, 
     chroma_client, 
@@ -84,29 +99,122 @@ def _get_session(repo_id: str):
         )
     return SESSION_GRAPHS[repo_id], SESSION_FILES[repo_id]
 
-# --- BACKGROUND INGESTION TASK ---
-async def process_and_store_summaries(repo_id: str, raw_files: dict):
-    """Runs in the background so the user doesn't wait for the /analyze endpoint"""
-    print(f"⚙️ Starting deep RAG ingestion for {repo_id}...")
+import asyncio
+
+async def safe_groq_call(messages: list, max_retries: int = 5):
+    """
+    Calls Groq and automatically handles Rate Limits with exponential backoff.
+    """
+    base_delay = 4 # Start with a 4 second wait
     
-    for file_path, file_content in raw_files.items():
+    for attempt in range(max_retries):
         try:
-            # Generate the massive summary and push it to ChromaDB
-            detailed_summary_json = await generate_rag_summary(file_path, file_content)
-            store_file_insight(repo_id, file_path, detailed_summary_json)
-            
-            # Sleep for 15 seconds to bypass Gemini's Free Tier Rate Limits
-            print(f"Sleeping for 15s to avoid 429 Quota Errors...")
-            await asyncio.sleep(15) 
+            # We use groq_client because that is what you imported at the top of main.py!
+            response = await groq_client.chat.completions.create(
+                messages=messages,
+                model="llama-3.1-8b-instant", 
+                response_format={"type": "json_object"},
+                temperature=0.1
+            )
+            return json.loads(response.choices[0].message.content)
             
         except Exception as e:
-            if "429" in str(e):
-                print(f"🛑 Rate limit hit (429)! Skipping remaining files for now to avoid ban.")
-                break
-            print(f"⚠️ Failed to ingest {file_path}: {e}")
+            error_msg = str(e).lower()
+            
+            if "429" in error_msg or "too many requests" in error_msg:
+                delay = base_delay * (2 ** attempt) 
+                print(f"⚠️ Groq Rate Limit. Pausing for {delay}s (Attempt {attempt + 1}/{max_retries})...")
+                await asyncio.sleep(delay)
+                
+            elif "413" in error_msg or "too large" in error_msg:
+                print("❌ Chunk is still too large. Skipping this segment.")
+                return {} 
+                
+            else:
+                print(f"❌ Unexpected Groq Error: {error_msg}")
+                raise e
+                
+    print("❌ Max retries reached for Groq API. Skipping this chunk.")
+    return {}
+
+async def process_and_store_summaries(repo_id: str, raw_files: dict):
+    """
+    Runs in the background, splitting large files into manageable chunks,
+    calling Groq with exponential backoff, and storing aggregated insights in ChromaDB.
+    """
+    print(f"⚙️ Starting deep Groq RAG ingestion for {repo_id}...")
+    
+    # SYSTEM_PROMPT should instruct the LLM to output structural JSON matching RepoNavigator requirements
+    SYSTEM_PROMPT = (
+        "You are an expert repository analyzer. Analyze the provided code snippet and return a "
+        "JSON object with these exact keys: 'architectural_role' (string summary), "
+        "'searchable_concepts' (list of string concepts), and 'potential_query_matches' (list of expected search queries)."
+    )
+    
+    for file_path, file_content in raw_files.items():
+        if not file_content or not file_content.strip():
+            continue
+            
+        try:
+            # 1. Use the code_splitter to split the text into manageable chunks
+            chunks = code_splitter.split_text(file_content)
+            print(f"📄 Processing '{file_path}' split into {len(chunks)} chunks...")
+            
+            # This dictionary accumulates data across all chunks of a single file
+            combined_insights = {
+                "architectural_role": "",
+                "searchable_concepts": [],
+                "potential_query_matches": []
+            }
+            
+            # 2. Iterate through each chunk of the file
+            for i, chunk in enumerate(chunks):
+                user_prompt = f"Analyze this segment ({i+1}/{len(chunks)}) of the file '{file_path}':\n\n{chunk}"
+                
+                messages = [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt}
+                ]
+                
+                # 3. Call Groq safely using your backoff wrapper
+                chunk_json = await safe_groq_call(messages)
+                
+                if not chunk_json:
+                    continue # Safe wrapper handled failure; move to next chunk
+                    
+                # 4. Seamlessly aggregate chunk data into combined_insights
+                if "architectural_role" in chunk_json and chunk_json["architectural_role"]:
+                    combined_insights["architectural_role"] += chunk_json["architectural_role"] + " "
+                    
+                if "searchable_concepts" in chunk_json and isinstance(chunk_json["searchable_concepts"], list):
+                    combined_insights["searchable_concepts"].extend(chunk_json["searchable_concepts"])
+                    
+                if "potential_query_matches" in chunk_json and isinstance(chunk_json["potential_query_matches"], list):
+                    combined_insights["potential_query_matches"].extend(chunk_json["potential_query_matches"])
+                
+                # Small safety delay between chunks of the same file
+                await asyncio.sleep(1)
+
+            # 5. Clean up string spacing and deduplicate arrays
+            combined_insights["architectural_role"] = combined_insights["architectural_role"].strip()
+            combined_insights["searchable_concepts"] = list(set(combined_insights["searchable_concepts"]))
+            combined_insights["potential_query_matches"] = list(set(combined_insights["potential_query_matches"]))
+            
+            # If all chunks skipped or failed, apply fallback values
+            if not combined_insights["architectural_role"]:
+                combined_insights["architectural_role"] = "Code module component."
+
+            # 6. Push the fully aggregated payload to ChromaDB
+            store_file_insight(repo_id, file_path, combined_insights)
+            
+            # A baseline safety delay between distinct files to stay clear of limits
+            print(f"Pacing ingestion... waiting 2s before the next file.")
+            await asyncio.sleep(2) 
+            
+        except Exception as e:
+            print(f"⚠️ Failed to ingest {file_path}: {str(e)}")
             
     print(f"✅ RAG ingestion complete for {repo_id}!")
-
 
 # --- AUTH & HISTORY SCHEMAS ---
 class UserCreate(BaseModel):
@@ -233,11 +341,11 @@ async def get_commits(repo_id: str):
     return fetch_repo_commits(SESSION_URLS[repo_id], limit=10)
 
 @app.get("/repo/{repo_id}/commit-insights/{sha}")
-async def get_commit_insights(repo_id: str, sha: str):
+async def get_commit_insights(repo_id: str, sha: str, db: Session = Depends(get_db)):
     if repo_id not in SESSION_URLS:
         raise HTTPException(status_code=404, detail="Repo URL not found.")
     
-    # 1. Fetch the raw files that changed directly from the GitHub commit ref!
+    # 1. Fetch the raw files that changed directly from the GitHub commit ref
     github_url = SESSION_URLS[repo_id]
     delta = fetch_commit_files_delta(github_url, sha)
     
@@ -253,28 +361,45 @@ async def get_commit_insights(repo_id: str, sha: str):
     # 3. Use Evolution Service to calculate structural deltas
     delta_data = calculate_graph_delta(G_old, G_new)
     
-    # Let's keep the additions/removals around for the UI to display diff numbers
+    # Keep the additions/removals around for the UI and the LLM prompt
+    delta_data["repo_id"] = repo_id
     delta_data["message"] = delta["message"]
     delta_data["added_lines"] = delta["added_count"]
     delta_data["removed_lines"] = delta["removed_count"]
     
-    # 4. Generate professional architectural diary narrative
-    narrative = await generate_evolution_narrative(delta_data, groq_client, "llama-3.3-70b-versatile")
-    if "unavailable" in narrative.lower(): # fallback if AI fails
+    # 4. Route through the database caching layer to protect Groq rate limits
+    # This reads from SQLite if it exists; otherwise, calls Groq and saves it.
+    narrative = await get_or_generate_evolution(
+        commit_sha=sha,
+        delta_data=delta_data,
+        client=groq_client,
+        model_name="llama-3.3-70b-versatile",
+        db=db
+    )
+    
+    # Fallback if the narrative string processing hits an issue
+    if "unavailable" in narrative.lower():
         narrative = "I made some architectural adjustments to the codebase, shifting dependencies and modifying core file structures."
 
+    # 5. Return everything matching the frontend hooks perfectly!
     return {
         "diffSummary": {
             "added": delta["added_count"],
             "removed": delta["removed_count"]
         },
-        "narrative": narrative
+        "narrative": narrative,
+        "delta": {
+            "added_files": delta_data.get("added_files", []),
+            "removed_files": delta_data.get("removed_files", [])
+        }
     }
-
 
 @app.get("/file-details/{repo_id}", response_model=FileDetailsResponse)
 async def get_file_details(repo_id: str, file_path: str):
     """Optimized: Fetches insights directly from ChromaDB for zero-latency sidebar"""
+
+    #just for checking whether correct repoid is used or not
+    print(f"DEBUG: Looking for {repo_id}. Available graphs: {list(SESSION_GRAPHS.keys())}")
     
     if repo_id not in SESSION_GRAPHS:
         raise HTTPException(status_code=404, detail="Repo not analyzed yet.")
@@ -296,6 +421,7 @@ async def get_file_details(repo_id: str, file_path: str):
     try:
         collection_name = get_repo_collection_name(repo_id)
         collection = chroma_client.get_collection(name=collection_name)
+        print(f"🔍 ASKING CHROMA: Repo='{repo_id}', Path='{file_path}'")
         result = collection.get(ids=[file_path])
         
         if result and result['metadatas'] and len(result['metadatas']) > 0:

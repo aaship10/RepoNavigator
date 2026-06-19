@@ -164,6 +164,7 @@ async def answer_global_query(repo_id: str, user_query: str, raw_files_dict: dic
         )
         
         response_string = chat_completion.choices[0].message.content
+        print(f"DEBUG: LLM Raw Output: {response_string}")
         return json.loads(response_string)
         
     except Exception as e:

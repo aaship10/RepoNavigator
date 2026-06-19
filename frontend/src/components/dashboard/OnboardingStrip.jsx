@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+// eslint-disable-next-line no-unused-vars
 import { motion } from 'framer-motion';
 
 const heatColors = {
@@ -63,7 +64,7 @@ export default function OnboardingStrip({ path = [], onSelectFile }) {
       {/* Scrolling timeline */}
       <div
         ref={scrollRef}
-        className="flex-1 flex items-center gap-0 overflow-x-auto px-6 pb-4 pt-1 no-scrollbar"
+        className="flex-1 flex items-center gap-6 px-8 pb-4 pt-1 no-scrollbar"
         style={{ scrollBehavior: 'smooth' }}
       >
         {isEmpty ? (
@@ -81,22 +82,23 @@ export default function OnboardingStrip({ path = [], onSelectFile }) {
 
             return (
               <div key={filePath} className="flex items-center flex-shrink-0">
-                {/* Step card */}
                 <motion.button
                   onClick={() => onSelectFile && onSelectFile(filePath)}
-                  className="flex flex-col items-start gap-1.5 px-5 py-4 rounded-2xl transition-all duration-300 cursor-pointer group min-w-[160px] relative overflow-hidden"
+                  // 1. Updated for more width and breathing room
+                  className="flex flex-col items-start gap-2 px-6 py-5 rounded-2xl transition-all duration-300 cursor-pointer group min-w-[200px] relative overflow-hidden"
                   style={{
                     background: '#232939',
                     boxShadow: '4px 4px 10px #141820, -4px -4px 10px #2a3248',
-                    border: '1px solid rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.06)',
                   }}
                   whileHover={{
-                    y: -4,
-                    scale: 1.02,
-                    boxShadow: `6px 12px 20px #141820, -6px -6px 20px #2a3248, 0 0 20px ${color}15`,
-                    borderColor: `${color}33`,
+                    // 2. Enhanced lift and glow effect
+                    y: -6,
+                    scale: 1.03,
+                    boxShadow: `8px 16px 30px #141820, -8px -8px 30px #2a3248, 0 0 25px ${color}20`,
+                    borderColor: `${color}44`,
                   }}
-                  whileTap={{ scale: 0.98 }}
+                  whileTap={{ scale: 0.97 }}
                 >
                   {/* Decorative glow corner */}
                   <div className="absolute top-0 right-0 w-8 h-8 opacity-20 pointer-events-none"
@@ -116,11 +118,13 @@ export default function OnboardingStrip({ path = [], onSelectFile }) {
                     <span className="text-lg leading-none">{icon}</span>
                   </div>
 
-                  <span className="text-[11px] font-bold text-gray-200 group-hover:text-cyan-400 transition-colors font-mono truncate w-full text-left">
+                  {/* Filename: Bold and prominent */}
+                  <span className="text-[12px] font-bold text-gray-100 group-hover:text-cyan-400 transition-colors font-mono truncate w-full text-left">
                     {fileName}
                   </span>
 
-                  <span className="text-[9px] text-gray-500 leading-relaxed text-left line-clamp-2 w-full opacity-80 font-mono">
+                  {/* File Path: Subtle and italicized */}
+                  <span className="text-[9px] text-gray-500 leading-tight text-left truncate w-full opacity-70 font-mono italic">
                     {filePath !== fileName ? filePath : 'Root file'}
                   </span>
                 </motion.button>

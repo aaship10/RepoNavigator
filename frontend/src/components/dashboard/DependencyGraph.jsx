@@ -1,3 +1,4 @@
+import { motion, AnimatePresence } from 'framer-motion';
 import { useCallback, useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ReactFlow, {
@@ -10,7 +11,6 @@ import ReactFlow, {
   ReactFlowProvider
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, GitBranch, Unlink, Grid3X3, Network, ChevronRight, History, FileText } from 'lucide-react';
 import TimeMachineContainer from './TimeMachineOverlays';
 
@@ -625,10 +625,14 @@ function FileGraph({ graphData, onNodeClick }) {
 }
 
 // ─── Time Machine Canvas ───────────────────────────────────────────────────────
-function TimeMachineGraph({ repoId }) {
+function TimeMachineGraph({ apiData }) {
+
+  const fallbackRepoId = window.location.pathname.split('/').filter(Boolean).pop();
+  const guaranteedRepoId = apiData?.repo_id || fallbackRepoId;
+
   return (
     <div className="w-full h-full relative">
-       <TimeMachineContainer repoId={repoId} />
+       <TimeMachineContainer repoId={guaranteedRepoId} apiData={apiData} />
     </div>
   );
 }
@@ -763,7 +767,7 @@ export default function DependencyGraph({ onNodeClick, onMatrixCellClick, apiDat
               transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
               className="w-full h-full absolute inset-0"
             >
-              <TimeMachineGraph repoId={apiData?.repo_id} />
+              <TimeMachineGraph apiData={apiData} />
             </motion.div>
           ) : (
             <motion.div

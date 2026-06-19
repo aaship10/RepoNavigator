@@ -1,14 +1,38 @@
+// eslint-disable-next-line no-unused-vars
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Clock, GitCommit, PlusCircle, MinusCircle } from 'lucide-react';
 import { fetchCommitHistory, fetchCommitInsights } from '../../services/api';
+import ReactFlow, { Background, Controls, useNodesState, useEdgesState, ReactFlowProvider } from 'reactflow';
+import 'reactflow/dist/style.css';
+
+// Reuse your DAG layout utility to arrange nodes cleanly on screen
+function layoutEvolutionDAG(nodes) {
+  if (nodes.length === 0) return nodes;
+  const layers = {};
+  nodes.forEach(n => { layers[n.id] = 0; });
+  const X_GAP = 280;
+  const Y_GAP = 160;
+  
+  // Basic layered distribution for visualization consistency
+  return nodes.map((n, idx) => {
+    const layer = idx % 3;
+    const rowIdx = Math.floor(idx / 3);
+    return { ...n, position: { x: rowIdx * X_GAP - 200, y: layer * Y_GAP - 50 } };
+  });
+}
 
 // ─── Master Container ────────────────────────────────────────────────────────
-export default function TimeMachineContainer({ repoId }) {
+export default function TimeMachineContainer({ repoId, apiData }) {
   const [commits, setCommits] = useState([]);
   const [currentCommitIdx, setCurrentCommitIdx] = useState(0);
   const [activeNarrative, setActiveNarrative] = useState("Loading history...");
   const [activeDiff, setActiveDiff] = useState(null);
+  const [activeDelta, setActiveDelta] = useState(null);
+
+  // React Flow instance states
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 
   // 1. Fetch commit history on mount
   useEffect(() => {
@@ -19,9 +43,9 @@ export default function TimeMachineContainer({ repoId }) {
       try {
         const data = await fetchCommitHistory(repoId);
         if (isMounted && data.length > 0) {
-          const reversed = [...data].reverse(); // Oldest left, newest right
+          const reversed = [...data].reverse();
           setCommits(reversed);
-          setCurrentCommitIdx(reversed.length - 1); // Start at most recent
+          setCurrentCommitIdx(reversed.length - 1);
         }
       } catch (err) {
         console.error("Failed to load commits", err);
@@ -31,37 +55,134 @@ export default function TimeMachineContainer({ repoId }) {
     return () => { isMounted = false; };
   }, [repoId]);
 
-  // 2. Fetch AI Insights when the active commit changes
+// 2. Fetch AI Insights and Delta changes when commit changes
   useEffect(() => {
     if (commits.length === 0) return;
     let isMounted = true;
     
+    // ✅ The async wrapper is correctly defined here
     async function loadInsights() {
       try {
-        setActiveNarrative('Analyzing architectural changes...');
-        setActiveDiff(null);
+        if (isMounted) {
+          setActiveNarrative('Analyzing architectural changes...');
+          setActiveDiff(null);
+          setActiveDelta(null);
+        }
         
         const sha = commits[currentCommitIdx].full_sha;
+        
+        // ✅ Await safely used inside the async function
         const data = await fetchCommitInsights(repoId, sha);
+
+        console.log("📦 RAW BACKEND DATA FOR COMMIT", sha, ":", data);
         
         if (isMounted) {
           setActiveNarrative(data.narrative);
-          setActiveDiff(data.diffSummary);
+          setActiveDiff(data.diffSummary || { added: data.added_lines || 0, removed: data.removed_lines || 0 });
+          
+          // ✅ Manually construct the delta object from the root backend response
+          setActiveDelta({
+            added_files: data.delta?.added_files || [],
+            removed_files: data.delta?.removed_files || []
+          });
         }
-      } catch (err) {
+      } catch {
         if (isMounted) setActiveNarrative('Failed to analyze this commit.');
       }
     }
     
-    // Debounce to prevent spamming API while sliding
+    // ✅ Call the async function with the debounce timer
     const timer = setTimeout(() => { loadInsights(); }, 400);
     return () => { isMounted = false; clearTimeout(timer); };
+    
   }, [currentCommitIdx, commits, repoId]);
 
-  if (commits.length === 0) return null;
+// 3. Dynamically compute evolution graph layers based on current delta
+  useEffect(() => {
+    if (!apiData || !apiData.file_tree) {
+      return; 
+    }
 
-  return (
-    <>
+    const rawFiles = apiData.file_tree;
+    const rawEdges = apiData.edges || [];
+
+    // Identify which files are altered in this step
+    const addedFiles = new Set(activeDelta?.added_files || []);
+    const removedFiles = new Set(activeDelta?.removed_files || []);
+
+    // 🚨 THE FIX: Combine current files with removed files so deleted nodes reappear!
+    const allFilesToDraw = new Set([...rawFiles]);
+    removedFiles.forEach(file => allFilesToDraw.add(file));
+
+    // Map over the combined list instead of just rawFiles
+    const computedNodes = Array.from(allFilesToDraw).map(f => {
+      const fileName = f.split('/').pop();
+      let accent = '#60A5FA'; // Default Blue
+      let statusLabel = 'stable';
+
+      if (addedFiles.has(f)) {
+        accent = '#4ade80'; // Green
+        statusLabel = 'added';
+      } else if (removedFiles.has(f)) {
+        accent = '#f87171'; // Red
+        statusLabel = 'removed';
+      }
+
+      return {
+        id: f,
+        type: 'default',
+        data: { label: `${fileName} (${statusLabel})` },
+        position: { x: 0, y: 0 }, 
+        style: {
+          background: '#1E232E',
+          color: '#F3F4F6',
+          border: `2px solid ${accent}`,
+          boxShadow: statusLabel !== 'stable' ? `0 0 15px ${accent}66` : 'none',
+          borderRadius: '12px',
+          fontSize: '11px',
+          fontFamily: 'monospace',
+          padding: '10px',
+          // Make ghost nodes slightly transparent
+          opacity: statusLabel === 'removed' ? 0.7 : 1 
+        }
+      };
+    });
+
+    // We don't need to ghost edges for now, just the nodes
+    const computedEdges = rawEdges.map((edge, i) => ({
+      id: `ev-edge-${i}`,
+      source: edge[0],
+      target: edge[1],
+      animated: true,
+      style: { stroke: 'rgba(255, 255, 255, 0.2)', strokeWidth: 1.5 }
+    }));
+
+    setNodes(layoutEvolutionDAG(computedNodes));
+    setEdges(computedEdges);
+    
+  }, [activeDelta, apiData, setNodes, setEdges]);
+
+  console.log("⚛️ React Flow Nodes:", nodes);
+  console.log("⚛️ React Flow Edges:", edges);
+  return (  
+    <div className="w-full h-full relative" style={{ height: '100%', minHeight: '500px' }}>
+      {/* ── BACKGROUND LAYER: The Graph Canvas ── */}
+      <div className="absolute inset-0 w-full h-full z-10">
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          fitView
+          fitViewOptions={{ padding: 0.3 }}
+          proOptions={{ hideAttribution: true }}
+        >
+          <Background variant="dots" gap={32} size={1} color="rgba(255,255,255,0.04)" />
+          <Controls position="top-left" style={{ marginTop: 60, marginLeft: 10 }} />
+        </ReactFlow>
+      </div>
+
+      {/* ── FOREGROUND LAYER: Controlling Overlays ── */}
       <ArchitectDiary narrative={activeNarrative} />
       <DiffOverlay diffSummary={activeDiff} />
       <TimelineSlider 
@@ -69,14 +190,14 @@ export default function TimeMachineContainer({ repoId }) {
         currentIndex={currentCommitIdx} 
         onChange={setCurrentCommitIdx} 
       />
-    </>
+    </div>
   );
 }
 
 // ─── Timeline Slider ─────────────────────────────────────────────────────────
 export function TimelineSlider({ steps, currentIndex, onChange }) {
   return (
-    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 w-2/3 max-w-3xl">
+    <div className="absolute bottom-[80px] left-1/2 -translate-x-1/2 z-40 w-2/3 max-w-3xl overflow-visible">
       <div 
         className="relative h-14 rounded-full flex items-center px-8"
         style={{
@@ -110,8 +231,8 @@ export function TimelineSlider({ steps, currentIndex, onChange }) {
 
                {/* Hover Tooltip */}
                <div className="absolute bottom-10 opacity-0 group-hover:opacity-100 transition-opacity bg-[#1E232E] border border-gray-700 rounded-md px-3 py-2 pointer-events-none w-48 text-center z-50">
-                  <p className="text-cyan-400 font-mono text-[10px] font-bold">{step.sha}</p>
-                  <p className="text-gray-300 text-[10px] truncate">{step.message}</p>
+                  <p className="text-cyan-400 font-mono text-[10px] font-bold">{step.sha || step.short_sha}</p>
+                  <p className="text-gray-300 text-[10px] whitespace-normal leading-tight">{step.message}</p>
                </div>
              </div>
           ))}
@@ -121,14 +242,19 @@ export function TimelineSlider({ steps, currentIndex, onChange }) {
   );
 }
 
-// ─── Architect's Diary ────────────────────────────────────────────────────────
+// ─── Architect's Diary (Fixed Card Height + Inner Text Containment) ──────────
 export function ArchitectDiary({ narrative }) {
   const [displayedText, setDisplayedText] = useState('');
   const [index, setIndex] = useState(0);
+  const scrollContainerRef = useRef(null);
 
   useEffect(() => {
-    setDisplayedText('');
-    setIndex(0);
+   const timer = setTimeout(() => {
+      setDisplayedText('');
+      setIndex(0);
+    }, 0);
+
+    return () => clearTimeout(timer);
   }, [narrative]);
 
   useEffect(() => {
@@ -136,7 +262,13 @@ export function ArchitectDiary({ narrative }) {
       const timer = setTimeout(() => {
         setDisplayedText(prev => prev + narrative[index]);
         setIndex(prev => prev + 1);
-      }, 15);
+      }, 12);
+
+      // Auto-scalls internal box down smoothly if text expands past boundary
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+      }
+
       return () => clearTimeout(timer);
     }
   }, [index, narrative]);
@@ -145,26 +277,33 @@ export function ArchitectDiary({ narrative }) {
     <motion.div 
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
-      className="absolute bottom-28 left-6 z-40 w-72 rounded-2xl p-5"
+      className="absolute top-24 left-6 z-40 w-80 rounded-2xl p-5 flex flex-col"
       style={{
-        background: 'rgba(30,35,46,0.7)',
-        boxShadow: '4px 4px 15px rgba(0,0,0,0.4), -4px -4px 15px rgba(255,255,255,0.02)',
+        height: '240px', // Explicit layout boundary constraints
+        background: 'rgba(30,35,46,0.85)',
+        boxShadow: '4px 4px 15px rgba(0,0,0,0.4)',
         border: '1px solid rgba(255,255,255,0.08)',
         backdropFilter: 'blur(16px)'
       }}
     >
-      <div className="flex items-center gap-2 mb-3 text-cyan-400">
+      <div className="flex items-center gap-2 mb-2 text-cyan-400 flex-shrink-0">
         <Clock size={16} />
         <span className="text-[11px] font-mono uppercase tracking-wider font-semibold">Architect's Diary</span>
       </div>
-      <p className="text-xs text-gray-300 leading-relaxed font-mono min-h-[60px]">
+      
+      {/* Scrollable interior viewport wrapper */}
+      <div 
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto pr-1 text-xs text-gray-300 leading-relaxed font-mono selection:bg-cyan-500/30"
+        style={{ scrollbarWidth: 'thin', maskImage: 'linear-gradient(to bottom, black 90%, transparent 100%)' }}
+      >
         {displayedText}
         <motion.span 
           animate={{ opacity: [1, 0] }} 
           transition={{ repeat: Infinity, duration: 0.8 }}
           className="inline-block w-1.5 h-3 ml-1 bg-cyan-400 align-middle"
         />
-      </p>
+      </div>
     </motion.div>
   );
 }
@@ -182,7 +321,6 @@ export function DiffOverlay({ diffSummary }) {
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      key={`diff-${diffSummary.added}-${diffSummary.removed}`}
       className="absolute bottom-28 right-6 z-40 flex items-center gap-3 px-4 py-3 rounded-full"
       style={{
         background: '#1E232E',

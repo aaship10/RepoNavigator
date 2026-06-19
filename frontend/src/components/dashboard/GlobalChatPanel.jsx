@@ -1,3 +1,4 @@
+// eslint-disable-next-line no-unused-vars
 import { motion } from 'framer-motion';
 import { X, MessageSquare, Loader2, Sparkles } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';

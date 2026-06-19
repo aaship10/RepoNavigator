@@ -2,11 +2,17 @@ import os
 import json
 import chromadb
 from chromadb.utils import embedding_functions
+from chromadb.config import Settings # 🟢 ADDED THIS IMPORT
 
 # 1. Initialize a persistent client so your vectors survive Uvicorn reloads!
 # It will create a hidden folder called 'chroma_data' in your backend directory.
 CHROMA_DATA_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "chroma_data")
-chroma_client = chromadb.PersistentClient(path=CHROMA_DATA_PATH)
+
+# 🟢 ADDED THE SETTINGS PARAMETER HERE TO KILL THE BUG 🟢
+chroma_client = chromadb.PersistentClient(
+    path=CHROMA_DATA_PATH,
+    settings=Settings(anonymized_telemetry=False)
+)
 
 # Use Chroma's default embedding model (all-MiniLM-L6-v2) 
 # It is fast, runs locally, is completely free, and doesn't require an API key.
@@ -48,7 +54,9 @@ def store_file_insight(repo_id: str, file_path: str, ai_insights: dict):
         "file_path": file_path,
         "full_architectural_profile": json.dumps(ai_insights)
     }
-    
+
+    print(f"💾 SAVING TO CHROMA: Repo='{repo_id}', Path='{file_path}'")
+
     # 4. INSERT OR UPDATE IN CHROMADB
     # Using upsert means if you re-analyze a repo, it updates the files instead of duplicating them
     collection.upsert(

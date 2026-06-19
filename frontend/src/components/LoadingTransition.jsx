@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+// eslint-disable-next-line no-unused-vars
 import { motion, AnimatePresence } from 'framer-motion';
 import CubeLoader from './ui/CubeLoader';
 
@@ -21,7 +22,9 @@ export default function LoadingTransition({ onComplete, progress = 0, statusMess
   // Fallback phrase cycling if statusMessage is empty
   useEffect(() => {
     if (statusMessage) {
-      setInternalMessage(statusMessage);
+      // Push the state update to the next tick to avoid cascading renders
+      const timer = setTimeout(() => setInternalMessage(statusMessage), 0);
+      return () => clearTimeout(timer);
     } else {
       const id = setInterval(() => {
         setPhraseIdx(prev => (prev + 1) % PHRASES.length);
@@ -30,11 +33,7 @@ export default function LoadingTransition({ onComplete, progress = 0, statusMess
     }
   }, [statusMessage]);
 
-  useEffect(() => {
-    if (statusMessage) setInternalMessage(statusMessage);
-  }, [statusMessage]);
-
-  // Handle completion
+  // Handle completion (✅ Kept exactly as you had it!)
   useEffect(() => {
     if (progress >= 100 && !completeFired.current) {
       completeFired.current = true;

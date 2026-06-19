@@ -21,43 +21,52 @@ def extract_repo_path(url: str) -> str:
 
 def fetch_repo_files(github_url: str, progress_callback=None) -> dict:
     """
-    Fetches all relevant files from a GitHub repository.
+    Fetches all relevant files from a GitHub repository using the high-speed Git Tree API.
     Returns a dictionary: {"path/to/file.js": "file content string"}
     """
     repo_path = extract_repo_path(github_url)
     
     try:
         repo = gh.get_repo(repo_path)
+        # 🟢 THE FIX: Grab the entire repo structure in ONE API call
+        tree = repo.get_git_tree(repo.default_branch, recursive=True)
     except GithubException as e:
         raise ValueError(f"Could not access repository. Check URL or Token. Error: {e.data.get('message')}")
 
     file_data = {}
-    contents = repo.get_contents("")
-    total_estimated = len(contents) 
+    items = tree.tree
+    total_estimated = len(items) 
     processed = 0
 
-    while contents:
-        file_obj = contents.pop(0)
+    for element in items:
         processed += 1
         
-        if progress_callback:
-            percent = min(60, int((processed / (processed + len(contents) + 1)) * 60))
-            progress_callback(percent, f"Fetching {file_obj.path[:30]}...")
-        
-        if file_obj.type == "dir":
-            dir_name = file_obj.name.lower()
-            if dir_name.startswith('.') or dir_name in ["node_modules", "venv", ".venv", "dist", "build", "public", "assets"]:
-                continue
-            contents.extend(repo.get_contents(file_obj.path))
+        # We only care about files ("blob"), we skip folders ("tree")
+        if element.type != "blob":
+            continue
+
+        # Replicate your folder exclusion logic (checking the path string directly)
+        path_lower = element.path.lower()
+        if path_lower.startswith('.') or any(f"/{ignored}/" in f"/{path_lower}" for ignored in ["node_modules", "venv", ".venv", "dist", "build", "public", "assets"]):
+            continue
             
-        else:
-            if not is_valid_source_file(file_obj.path):
-                continue
-            try:
-                decoded_content = base64.b64decode(file_obj.content).decode('utf-8')
-                file_data[file_obj.path] = decoded_content
-            except (UnicodeDecodeError, AttributeError):
-                print(f"Skipping unreadable file: {file_obj.path}")
+        if not is_valid_source_file(element.path):
+            continue
+
+        # Update progress callback for valid files
+        if progress_callback:
+            percent = min(60, int((processed / total_estimated) * 60))
+            progress_callback(percent, f"Fetching {element.path[:30]}...")
+
+        try:
+            # Fetch the actual content for valid files
+            file_obj = repo.get_contents(element.path)
+            decoded_content = base64.b64decode(file_obj.content).decode('utf-8')
+            file_data[element.path] = decoded_content
+        except (UnicodeDecodeError, AttributeError):
+            print(f"Skipping unreadable file: {element.path}")
+        except Exception as e:
+            print(f"Error fetching {element.path}: {e}")
 
     return file_data
 

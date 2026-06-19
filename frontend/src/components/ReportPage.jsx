@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useReactToPrint } from 'react-to-print';
+// eslint-disable-next-line no-unused-vars
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Download, ShieldAlert, Cpu, GitPullRequest, GitMerge, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 

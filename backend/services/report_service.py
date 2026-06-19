@@ -1,7 +1,8 @@
 import datetime
 import json
 from github import Github, GithubException
-from services.ai_service import client, types
+
+from services.ai_service import client 
 
 def get_github_report_stats(gh: Github, owner: str, repo_name: str) -> dict:
     repo_path = f"{owner}/{repo_name}"
@@ -24,11 +25,9 @@ def get_github_report_stats(gh: Github, owner: str, repo_name: str) -> dict:
     }
     
     # 2. Basic Stats
-    # Note: open_issues_count includes PRs in GitHub API. We need to approximate or leave it.
-    # To get actual open issues and PRs efficiently:
     pulls = repo.get_pulls(state='open')
     open_prs_count = pulls.totalCount
-    open_issues_count = repo.open_issues_count - open_prs_count  # GitHub counts PRs as issues
+    open_issues_count = repo.open_issues_count - open_prs_count  
 
     stats = {
         "stars": repo.stargazers_count,
@@ -90,7 +89,7 @@ def get_github_report_stats(gh: Github, owner: str, repo_name: str) -> dict:
     # 6. Issue Tracking
     issue_tracking = {
         "open_issues": open_issues_count,
-        "total_issues": repo.open_issues_count + (getattr(repo, 'network_count', 0)), # Approximate/skip deep fetch to save time
+        "total_issues": repo.open_issues_count + (getattr(repo, 'network_count', 0)), 
     }
 
     # 7. Pull Requests
@@ -113,9 +112,7 @@ def get_github_report_stats(gh: Github, owner: str, repo_name: str) -> dict:
 
     # 9. Community Profile
     try:
-        # Hack to get community health boolean flags quickly
         has_license = bool(repo.license)
-        # Check files for common community standards
         root_files = [f.path.lower() for f in repo.get_contents("")]
         has_coc = any("code_of_conduct" in f for f in root_files)
         has_contrib = any("contributing" in f for f in root_files)
@@ -171,7 +168,7 @@ def get_github_report_stats(gh: Github, owner: str, repo_name: str) -> dict:
 
 async def generate_report_insights(stats_json: dict) -> dict:
     """
-    Feeds the stats to Gemini to generate plain English interpretations and an Executive Summary.
+    Feeds the stats to Groq to generate plain English interpretations and an Executive Summary.
     """
     prompt = f"""
     You are an expert technical auditor analyzing a GitHub repository algorithmically.
@@ -200,18 +197,16 @@ async def generate_report_insights(stats_json: dict) -> dict:
     """
     
     try:
-        # We use Flash 2.5 because it's fast and handles complex prompt parsing easily
-        response = await client.aio.models.generate_content(
-            model='gemini-flash-latest',
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.2,
-                response_mime_type="application/json",
-            )
+        # ✅ Using the exact same Groq model we set up in ai_service
+        response = await client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="llama-3.1-8b-instant",
+            response_format={"type": "json_object"},
+            temperature=0.2
         )
-        return json.loads(response.text)
+        return json.loads(response.choices[0].message.content)
     except Exception as e:
-        print(f"Failed to generate report insights: {e}")
+        print(f"Failed to generate report insights via Groq: {e}")
         return {
            "interpretations": {
               "stats": "Analysis unavailable.",
@@ -219,7 +214,7 @@ async def generate_report_insights(stats_json: dict) -> dict:
               "history": "Analysis unavailable.",
               "community": "Analysis unavailable."
            },
-           "executive_summary": "The AI insight generator is currently unavailable or hit a rate limit. Please rely on the raw metrics provided in the report above.",
+           "executive_summary": "The AI insight generator is currently unavailable. Please rely on the raw metrics provided in the report above.",
            "key_strengths": ["Data unavailable", "Data unavailable"],
            "key_risks": ["Data unavailable", "Data unavailable"]
         }
